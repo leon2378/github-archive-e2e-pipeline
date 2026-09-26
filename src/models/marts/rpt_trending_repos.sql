@@ -2,6 +2,8 @@
 
 -- Top repositories by stars in the most recent window, compared with the window before it.
 -- The window ends at the latest date in the data rather than today, so backfilled history works.
+-- Language, description and age come from dim_repo; they are null until a repo is enriched
+-- (usually the day after it first trends).
 {%- set window_days = var('trending_window_days') %}
 
 with daily as (
@@ -47,8 +49,20 @@ ranked as (
         forks_in_window
     from windowed
     where stars_in_window > 0
+),
+
+top_n as (
+    select * from ranked where trending_rank <= {{ var('trending_top_n') }}
 )
 
-select *
-from ranked
-where trending_rank <= {{ var('trending_top_n') }}
+select
+    top_n.*,
+    repo.language,
+    repo.description,
+    repo.repo_created_at,
+    repo.stargazers_count as total_stars,
+    repo.repo_created_at
+        >= cast(date_sub(top_n.as_of_date, {{ var('new_repo_days') }}) as timestamp)
+        as is_new_repo
+from top_n
+left join {{ ref('dim_repo') }} as repo on top_n.repo_id = repo.repo_id

@@ -13,26 +13,29 @@ models:
       - name: repo_id
         data_tests: [unique, not_null]
       - name: repo_name
-        description: Latest known owner/name; GitHub redirects renamed repos.
+        description: Current name for known repos (avoids rename redirects), else latest seen.
         data_tests: [not_null]
       - name: reason
         data_tests:
           - accepted_values:
               arguments:
-                values: [trending, most_active]
+                values: [trending, most_active, refresh]
       - name: etag
-        description: ETag from the last fetch, sent as If-None-Match (null until known).
+        description: ETag from the last 200/304 response, sent as If-None-Match (null if unknown).
 
 unit_tests:
-  - name: queue_puts_trending_first_dedupes_and_ranks_active_repos_by_humans
+  - name: queue_prioritises_dedupes_skips_unavailable_and_refreshes_stale_repos
     description: >
-      Trending repos come first; a repo that is both trending and active appears once, as
-      trending. Active repos are ranked by human actors on the latest day only, bot-only repos
-      are skipped, and the active list is capped by var enrichment_active_top_n.
+      Trending first, then the most active (by humans, latest day only, bots skipped, capped),
+      then stale known repos. A repo in several groups appears once, in its best group. Repos
+      found missing recently are skipped. Known repos use their current name and saved ETag.
     model: ops_repo_enrichment_queue
     overrides:
       vars:
         enrichment_active_top_n: 2
+        enrichment_refresh_top_n: 10
+        enrichment_refresh_after_days: 7
+        enrichment_recheck_unavailable_days: 30
     given:
       - input: ref('fct_repo_daily_activity')
         rows:
@@ -44,9 +47,22 @@ unit_tests:
       - input: ref('rpt_trending_repos')
         rows:
           - { trending_rank: 1, repo_id: 10, repo_name: "a/trend" }
-          - { trending_rank: 2, repo_id: 60, repo_name: "f/stars" }
+          - { trending_rank: 2, repo_id: 60, repo_name: "f/gone" }
+      - input: ref('dim_repo')
+        rows:
+          - { repo_id: 10, full_name: "a/trend-renamed" }
+          - { repo_id: 20, full_name: "b/busy" }
+          - { repo_id: 70, full_name: "g/stale" }
+          - { repo_id: 80, full_name: "h/fresh" }
+      - input: ref('int_repo_latest_fetch')
+        rows:
+          - { repo_id: 10, last_checked_at: "2026-09-24 00:00:00", latest_outcome: "ok", is_available: true, last_etag: '"e10"' }
+          - { repo_id: 20, last_checked_at: "2026-09-24 00:00:00", latest_outcome: "ok", is_available: true, last_etag: '"e20"' }
+          - { repo_id: 60, last_checked_at: "2026-09-20 00:00:00", latest_outcome: "not_found", is_available: false, last_etag: null }
+          - { repo_id: 70, last_checked_at: "2026-09-01 00:00:00", latest_outcome: "not_modified", is_available: true, last_etag: '"e70"' }
+          - { repo_id: 80, last_checked_at: "2026-09-24 00:00:00", latest_outcome: "ok", is_available: true, last_etag: '"e80"' }
     expect:
       rows:
-        - { priority: 1, repo_id: 10, repo_name: "a/trend", reason: "trending" }
-        - { priority: 2, repo_id: 60, repo_name: "f/stars", reason: "trending" }
-        - { priority: 3, repo_id: 20, repo_name: "b/busy", reason: "most_active" }
+        - { priority: 1, repo_id: 10, repo_name: "a/trend-renamed", reason: "trending", etag: '"e10"' }
+        - { priority: 2, repo_id: 20, repo_name: "b/busy", reason: "most_active", etag: '"e20"' }
+        - { priority: 3, repo_id: 70, repo_name: "g/stale", reason: "refresh", etag: '"e70"' }

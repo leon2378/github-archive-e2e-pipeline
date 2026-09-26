@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: int_repo_latest_fetch
+    description: >
+      Latest fetch state per repo, shared by dim_repo (availability, metrics) and the enrichment
+      queue (ETags, when each repo was last checked).
+    columns:
+      - name: repo_id
+        data_tests: [unique, not_null]
+      - name: is_available
+        description: True when the latest check returned 200 or 304; false after a 404/403/451.
+      - name: last_etag
+        description: ETag from the latest 200/304 response, sent as If-None-Match next time.

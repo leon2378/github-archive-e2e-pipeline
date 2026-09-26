@@ -36,26 +36,88 @@ models:
                 min_value: 0
                 max_value: 23
 
+  - name: dim_repo
+    description: >
+      One row per enriched repo: current attributes from the latest SCD2 version in
+      silver_repo_history, availability and metrics from the latest fetch. Keyed on repo_id,
+      which survives renames and ownership transfers.
+    columns:
+      - name: repo_id
+        data_tests: [unique, not_null]
+      - name: full_name
+        description: Current owner/name.
+        data_tests: [not_null]
+      - name: version_count
+        description: Number of SCD2 versions seen, i.e. tracked changes plus one.
+      - name: is_available
+        description: False when the latest check returned 404, 403 or 451.
+      - name: latest_outcome
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [ok, not_modified, not_found, blocked, other]
+
+  - name: fct_repo_snapshot_daily
+    description: >
+      Periodic snapshot: stars, forks and open issues per enriched repo per day it was checked.
+      A 304 (unchanged) check carries the previous metrics forward.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [snapshot_date, repo_id]
+    columns:
+      - name: stargazers_count
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: stars_change
+        description: Change since the repo's previous snapshot; null for its first snapshot.
+
   - name: rpt_trending_repos
     description: >
       Top repositories by stars in the latest window (var trending_window_days), with growth
-      against the window before it. Rebuilt in full on every run.
+      against the window before it, plus language, description and age from dim_repo.
+      Rebuilt in full on every run.
     columns:
       - name: trending_rank
         data_tests: [unique, not_null]
+      - name: repo_id
+        data_tests:
+          # New trending repos are enriched on the next run, so a gap here warns, not fails.
+          - relationships:
+              arguments:
+                to: ref('dim_repo')
+                field: repo_id
+              config:
+                severity: warn
       - name: star_growth_pct
         description: Percent change in stars vs the prior window; null if the prior window had none.
+      - name: is_new_repo
+        description: Created within var new_repo_days of the as-of date; null if not enriched yet.
+
+  - name: rpt_trending_languages
+    description: >
+      Stars in the latest trending window per primary language, across all enriched repos.
+    columns:
+      - name: language
+        data_tests: [unique, not_null]
+      - name: language_rank
+        data_tests: [unique, not_null]
 
 unit_tests:
   - name: trending_ranks_by_recent_stars_and_computes_growth
     description: >
       Stars from the prior window count toward growth but not rank; repos with no recent stars
-      and events older than two windows are excluded.
+      and events older than two windows are excluded. Enriched repos get language and a new-repo
+      flag; repos not enriched yet keep nulls.
     model: rpt_trending_repos
     overrides:
       vars:
         trending_window_days: 7
         trending_top_n: 10
+        new_repo_days: 30
     given:
       - input: ref('fct_repo_daily_activity')
         rows:
@@ -67,8 +129,81 @@ unit_tests:
           - { event_date: "2026-09-19", repo_id: 3, repo_name: "c/brand-new", stars: 30, forks: 1 }
           - { event_date: "2026-09-12", repo_id: 4, repo_name: "d/cooling", stars: 99, forks: 0 }
           - { event_date: "2026-09-01", repo_id: 5, repo_name: "e/ancient", stars: 500, forks: 0 }
+      - input: ref('dim_repo')
+        rows:
+          - { repo_id: 1, full_name: "a/rising", language: "Rust", repo_created_at: "2026-09-10 00:00:00", stargazers_count: 5000 }
+          - { repo_id: 2, full_name: "b/steady", language: "Go", repo_created_at: "2019-01-01 00:00:00", stargazers_count: 90000 }
     expect:
       rows:
-        - { trending_rank: 1, repo_name: "a/rising", stars_in_window: 50, stars_prior_window: 10, star_delta: 40, star_growth_pct: 400.0 }
-        - { trending_rank: 2, repo_name: "c/brand-new", stars_in_window: 30, stars_prior_window: 0, star_delta: 30, star_growth_pct: null }
-        - { trending_rank: 3, repo_name: "b/steady", stars_in_window: 20, stars_prior_window: 20, star_delta: 0, star_growth_pct: 0.0 }
+        - { trending_rank: 1, repo_name: "a/rising", stars_in_window: 50, stars_prior_window: 10, star_delta: 40, star_growth_pct: 400.0, language: "Rust", total_stars: 5000, is_new_repo: true }
+        - { trending_rank: 2, repo_name: "c/brand-new", stars_in_window: 30, stars_prior_window: 0, star_delta: 30, star_growth_pct: null, language: null, total_stars: null, is_new_repo: null }
+        - { trending_rank: 3, repo_name: "b/steady", stars_in_window: 20, stars_prior_window: 20, star_delta: 0, star_growth_pct: 0.0, language: "Go", total_stars: 90000, is_new_repo: false }
+
+  - name: dim_repo_uses_current_version_and_latest_fetch_state
+    description: >
+      Attributes come from the current SCD2 version; version_count counts all versions;
+      availability and metrics come from the latest fetch state.
+    model: dim_repo
+    given:
+      - input: ref('stg_gharchive__repo_history')
+        rows:
+          - { repo_id: 1, full_name: "o/one", language: null, valid_from: "2026-09-20 00:00:00", valid_to: "2026-09-22 00:00:00", is_current: false }
+          - { repo_id: 1, full_name: "o/one", language: "Zig", valid_from: "2026-09-22 00:00:00", valid_to: null, is_current: true }
+          - { repo_id: 2, full_name: "o/two", language: "Go", valid_from: "2026-09-21 00:00:00", valid_to: null, is_current: true }
+      - input: ref('int_repo_latest_fetch')
+        rows:
+          - { repo_id: 1, latest_outcome: "not_modified", is_available: true, stargazers_count: 150 }
+          - { repo_id: 2, latest_outcome: "not_found", is_available: false, stargazers_count: 90 }
+    expect:
+      rows:
+        - { repo_id: 1, full_name: "o/one", language: "Zig", version_count: 2, first_seen_at: "2026-09-20 00:00:00", is_available: true, stargazers_count: 150 }
+        - { repo_id: 2, full_name: "o/two", language: "Go", version_count: 1, first_seen_at: "2026-09-21 00:00:00", is_available: false, stargazers_count: 90 }
+
+  - name: snapshots_keep_last_check_per_day_and_carry_forward_on_304
+    description: >
+      The last check of each day wins; a 304 day carries forward the previous metrics; failed
+      checks (404) produce no snapshot; stars_change compares with the previous snapshot.
+    model: fct_repo_snapshot_daily
+    given:
+      - input: ref('stg_gharchive__repo_fetches')
+        rows:
+          - { repo_id: 1, fetched_at: "2026-09-20 01:00:00", fetch_outcome: "ok", stargazers_count: 100 }
+          - { repo_id: 1, fetched_at: "2026-09-20 05:00:00", fetch_outcome: "ok", stargazers_count: 110 }
+          - { repo_id: 1, fetched_at: "2026-09-21 01:00:00", fetch_outcome: "not_modified", stargazers_count: null }
+          - { repo_id: 1, fetched_at: "2026-09-22 01:00:00", fetch_outcome: "ok", stargazers_count: 130 }
+          - { repo_id: 1, fetched_at: "2026-09-23 01:00:00", fetch_outcome: "not_found", stargazers_count: null }
+    expect:
+      rows:
+        - { snapshot_date: "2026-09-20", repo_id: 1, stargazers_count: 110, is_carried_forward: false, stars_change: null }
+        - { snapshot_date: "2026-09-21", repo_id: 1, stargazers_count: 110, is_carried_forward: true, stars_change: 0 }
+        - { snapshot_date: "2026-09-22", repo_id: 1, stargazers_count: 130, is_carried_forward: false, stars_change: 20 }
+
+  - name: trending_languages_aggregates_enriched_repos_in_window
+    description: >
+      Only enriched repos with stars inside the window count; a missing language becomes
+      "No language"; shares are of enriched stars; trending repos are counted per language.
+    model: rpt_trending_languages
+    overrides:
+      vars:
+        trending_window_days: 7
+    given:
+      - input: ref('fct_repo_daily_activity')
+        rows:
+          - { event_date: "2026-09-20", repo_id: 1, stars: 50 }
+          - { event_date: "2026-09-19", repo_id: 2, stars: 30 }
+          - { event_date: "2026-09-18", repo_id: 3, stars: 20 }
+          - { event_date: "2026-09-10", repo_id: 4, stars: 5 }
+          - { event_date: "2026-09-20", repo_id: 5, stars: 40 }
+      - input: ref('dim_repo')
+        rows:
+          - { repo_id: 1, full_name: "a/one", language: "Rust" }
+          - { repo_id: 2, full_name: "b/two", language: "Rust" }
+          - { repo_id: 3, full_name: "c/three", language: null }
+          - { repo_id: 4, full_name: "d/four", language: "Go" }
+      - input: ref('rpt_trending_repos')
+        rows:
+          - { trending_rank: 1, repo_id: 1 }
+    expect:
+      rows:
+        - { language_rank: 1, language: "Rust", repos_with_stars: 2, stars_in_window: 80, stars_share_pct: 80.0, trending_repos: 1, top_repo: "a/one", top_repo_stars: 50 }
+        - { language_rank: 2, language: "No language", repos_with_stars: 1, stars_in_window: 20, stars_share_pct: 20.0, trending_repos: 0, top_repo: "c/three", top_repo_stars: 20 }

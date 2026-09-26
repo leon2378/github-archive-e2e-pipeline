@@ -28,3 +28,27 @@ models:
       - name: repo_id
         data_tests:
           - not_null
+
+  - name: stg_gharchive__repo_fetches
+    description: One row per GitHub API fetch attempt. Thin view over silver_repo_fetches.
+    columns:
+      - name: repo_id
+        data_tests: [not_null]
+      - name: fetched_at
+        data_tests: [not_null]
+      - name: fetch_outcome
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [ok, not_modified, not_found, blocked, other]
+
+  - name: stg_gharchive__repo_history
+    description: >
+      Repo attribute versions (SCD Type 2) over silver_repo_history, with valid_from/valid_to
+      and an is_current flag. Integrity of the version chain is checked by
+      assert_repo_history_is_contiguous.
+    columns:
+      - name: repo_id
+        data_tests: [not_null]
+      - name: valid_from
+        data_tests: [not_null]

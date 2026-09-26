@@ -4,19 +4,27 @@ profile: gharchive
 
 model-paths: ["src/models"]
 macro-paths: ["src/macros"]
+test-paths: ["src/tests"]  # singular dbt tests; the top-level tests/ folder is for pytest
 clean-targets: ["target", "dbt_packages"]
 
 vars:
   # Size of the "recent" window when ranking trending repositories, and how many to keep.
   trending_window_days: 7
   trending_top_n: 100
-  # How many of the most active repos (beyond trending) to queue for GitHub API enrichment.
-  # Trending + active stays under the GitHub Actions token's 1,000 requests/hour.
+  # A repo created within this many days of the as-of date counts as "new".
+  new_repo_days: 30
+  # GitHub API enrichment queue. Trending + active stays under the GitHub Actions token's
+  # 1,000 requests/hour; refreshes mostly return 304s, which don't use quota.
   enrichment_active_top_n: 800
+  enrichment_refresh_top_n: 500
+  enrichment_refresh_after_days: 7
+  enrichment_recheck_unavailable_days: 30
 
 models:
   gharchive:
     staging:
+      +materialized: view
+    intermediate:
       +materialized: view
     marts:
       +materialized: table

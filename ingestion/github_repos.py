@@ -275,7 +275,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--queue-file", type=Path, help="Read the queue from a JSON-lines file.")
     parser.add_argument("--warehouse", default=DEFAULT_WAREHOUSE, help="SQL warehouse name.")
-    parser.add_argument("--limit", type=int, default=1000, help="Max queue rows to read.")
+    parser.add_argument("--limit", type=int, default=1500, help="Max queue rows to read.")
     parser.add_argument(
         "--max-requests", type=int, default=900, help="Max quota-consuming API calls this run."
     )

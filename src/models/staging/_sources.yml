@@ -13,3 +13,14 @@ sources:
           freshness:
             warn_after: { count: 36, period: hour }
             error_after: { count: 72, period: hour }
+      - name: silver_repo_fetches
+        description: One row per GitHub API fetch attempt (outcome, ETag, repo metrics).
+        config:
+          loaded_at_field: _ingested_at
+          freshness:
+            # Enrichment is best-effort, so a stale fetch log warns rather than fails.
+            warn_after: { count: 48, period: hour }
+      - name: silver_repo_history
+        description: >
+          Repo attributes over time as an SCD Type 2 table built by AUTO CDC. Each version is
+          valid from __START_AT until __END_AT (null for the current version).
