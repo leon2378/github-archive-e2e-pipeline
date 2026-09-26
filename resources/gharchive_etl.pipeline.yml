@@ -1,4 +1,6 @@
-# Lakeflow Spark Declarative Pipeline: landing volume -> bronze_events -> silver_events.
+# Lakeflow Spark Declarative Pipeline, two flows from the landing volume:
+#   events/ -> bronze_events -> silver_events
+#   repos/  -> bronze_repos  -> silver_repo_fetches + silver_repo_history (SCD Type 2)
 resources:
   pipelines:
     gharchive_etl:
@@ -14,3 +16,4 @@ resources:
 
       configuration:
         gharchive.landing_path: ${resources.volumes.landing.volume_path}/events
+        gharchive.repos_landing_path: ${resources.volumes.landing.volume_path}/repos
