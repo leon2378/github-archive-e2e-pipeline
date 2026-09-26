@@ -13,7 +13,7 @@ flowchart LR
         VOL -->|Auto Loader| BR["bronze_events"]
         BR -->|"expectations"| SI["silver_events"]
         SI -->|dbt| GOLD["fct_repo_daily_activity<br/>fct_hourly_activity<br/>rpt_trending_repos"]
-        GOLD --> DASH["AI/BI dashboard<br/>+ Genie space"]
+        GOLD --> DASH["AI/BI dashboard<br/>+ Ask Genie"]
     end
 ```
 
@@ -45,6 +45,7 @@ ingestion/gharchive.py          extract: GH Archive -> slim -> UC volume (idempo
 src/gharchive_etl/           Lakeflow pipeline: bronze_events.py, silver_events.py
 src/models/                     dbt: staging view + gold marts (+ tests, unit tests)
 src/macros/                     dbt macro for late-arriving-data-safe incremental models
+src/dashboards/                 AI/BI dashboard definition (deployed per target)
 dbt_project.yml, packages.yml   dbt project config
 dbt_profiles/profiles.yml       dbt connection profiles (job + local)
 tests/                          pytest suite for the ingestion code
@@ -135,19 +136,28 @@ Want to see the ingestion without Databricks? Write to a local folder instead:
    click **Run workflow**, and enter a `start`/`end` range.
 5. The prod job runs daily at 03:00 UTC and emails you if anything fails.
 
-### 4. Build the dashboard
+### 4. The dashboard
 
-1. In Databricks, create an **AI/BI dashboard** on the gold tables. Good starting visuals:
-   - the top-20 bar chart from `rpt_trending_repos`
-   - an hour × weekday heatmap and a bot-share line from `fct_hourly_activity`
-   - PRs opened vs merged per day from `fct_repo_daily_activity`
-2. Create a **Genie space** over the gold tables so anyone can ask questions like
-   "which repos merged the most pull requests this week?"
-3. Pull the dashboard into the bundle so it's versioned like everything else:
-   ```powershell
-   databricks bundle generate dashboard --existing-id <dashboard-id>
-   ```
-4. Publish the dashboard and put a screenshot and link at the top of this README.
+The **GitHub Archive Pulse** AI/BI dashboard is deployed with the bundle, like the pipeline and
+job. Find it under **Dashboards** as `[dev] GitHub Archive Pulse` or `[prod] GitHub Archive Pulse`.
+It contains:
+
+- KPIs: events, active repos, stars, PRs merged, releases, and bot share
+- the top 20 trending repos, and activity by hour of day split into human vs bot
+- events per day (human vs bot) and pull requests opened vs merged per day
+- the repos merging the most PRs, with how automated each one is
+
+The dashboard is defined in `src/dashboards/gharchive_pulse.lvdash.json`. Its queries use
+unqualified table names, and `dataset_schema` in `resources/gharchive.dashboard.yml` points them at
+the right gold schema for each target. To change it, edit the dev dashboard in the UI, then pull
+the changes back into the repo:
+
+```powershell
+databricks bundle generate dashboard --resource gharchive_pulse --force
+```
+
+Every published dashboard also has **Ask Genie**, so viewers can ask questions in plain English,
+like "which repos merged the most pull requests this week?"
 
 ### Running dbt locally (optional)
 

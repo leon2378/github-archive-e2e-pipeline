@@ -1,0 +1,887 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpis",
+      "displayName": "KPIs",
+      "queryLines": [
+        "select\n",
+        "  sum(total_events)                                   as total_events,\n",
+        "  count(distinct repo_id)                             as active_repos,\n",
+        "  sum(stars)                                          as stars,\n",
+        "  sum(pull_requests_merged)                           as prs_merged,\n",
+        "  sum(releases)                                       as releases,\n",
+        "  round(100 * sum(bot_events) / sum(total_events), 1) as bot_share_pct\n",
+        "from fct_repo_daily_activity"
+      ]
+    },
+    {
+      "name": "ds_trending",
+      "displayName": "Trending repos",
+      "queryLines": [
+        "select\n",
+        "  concat(lpad(cast(trending_rank as string), 2, '0'), '. ', repo_name) as repo,\n",
+        "  trending_rank,\n",
+        "  repo_name,\n",
+        "  stars_in_window,\n",
+        "  stars_prior_window,\n",
+        "  star_growth_pct,\n",
+        "  forks_in_window\n",
+        "from rpt_trending_repos\n",
+        "where trending_rank <= 20"
+      ]
+    },
+    {
+      "name": "ds_hourly",
+      "displayName": "Activity by hour (human vs bot)",
+      "queryLines": [
+        "select lpad(cast(event_hour as string), 2, '0') as hour_utc, 'Human' as actor,\n",
+        "       sum(events - bot_events) as events\n",
+        "from fct_hourly_activity group by event_hour\n",
+        "union all\n",
+        "select lpad(cast(event_hour as string), 2, '0') as hour_utc, 'Bot' as actor,\n",
+        "       sum(bot_events) as events\n",
+        "from fct_hourly_activity group by event_hour"
+      ]
+    },
+    {
+      "name": "ds_daily",
+      "displayName": "Activity by day (human vs bot)",
+      "queryLines": [
+        "select event_date, 'Human' as actor, sum(events - bot_events) as events\n",
+        "from fct_hourly_activity group by event_date\n",
+        "union all\n",
+        "select event_date, 'Bot' as actor, sum(bot_events) as events\n",
+        "from fct_hourly_activity group by event_date"
+      ]
+    },
+    {
+      "name": "ds_prs",
+      "displayName": "Pull requests per day",
+      "queryLines": [
+        "select event_date, 'Opened' as status, sum(pull_requests_opened) as pull_requests\n",
+        "from fct_repo_daily_activity group by event_date\n",
+        "union all\n",
+        "select event_date, 'Merged' as status, sum(pull_requests_merged) as pull_requests\n",
+        "from fct_repo_daily_activity group by event_date"
+      ]
+    },
+    {
+      "name": "ds_automation",
+      "displayName": "Repos merging the most PRs",
+      "queryLines": [
+        "select\n",
+        "  repo_name,\n",
+        "  sum(pull_requests_merged)                           as prs_merged,\n",
+        "  sum(pull_requests_opened)                           as prs_opened,\n",
+        "  round(100 * sum(bot_events) / sum(total_events), 0) as bot_pct,\n",
+        "  max(unique_human_actors)                            as peak_daily_humans\n",
+        "from fct_repo_daily_activity\n",
+        "group by repo_name\n",
+        "order by prs_merged desc\n",
+        "limit 25"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "w_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# GitHub Archive Pulse\n",
+                "What the world is building on GitHub: every public event from [GH Archive](https://www.gharchive.org), refreshed daily by a Lakeflow pipeline and dbt. Times are UTC."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_events",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(total_events)",
+                      "expression": "SUM(`total_events`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_events)",
+                  "displayName": "Events"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Events"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_repos",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(active_repos)",
+                      "expression": "SUM(`active_repos`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(active_repos)",
+                  "displayName": "Active repos"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Active repos"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_stars",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(stars)",
+                      "expression": "SUM(`stars`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(stars)",
+                  "displayName": "Stars given"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Stars given"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_prs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(prs_merged)",
+                      "expression": "SUM(`prs_merged`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(prs_merged)",
+                  "displayName": "PRs merged"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "PRs merged"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_releases",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(releases)",
+                      "expression": "SUM(`releases`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(releases)",
+                  "displayName": "Releases"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Releases"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_bots",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(bot_share_pct)",
+                      "expression": "SUM(`bot_share_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(bot_share_pct)",
+                  "displayName": "Bot share %"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Bot share %"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_trending",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trending",
+                  "fields": [
+                    {
+                      "name": "repo",
+                      "expression": "`repo`"
+                    },
+                    {
+                      "name": "sum(stars_in_window)",
+                      "expression": "SUM(`stars_in_window`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(stars_in_window)",
+                  "displayName": "Stars",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Stars (7 days)"
+                  }
+                },
+                "y": {
+                  "fieldName": "repo",
+                  "displayName": "Repository",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Repository"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 20 trending repos",
+                "showDescription": true,
+                "description": "Most stars in the latest 7 days, ties broken by forks"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "w_hourly",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_hourly",
+                  "fields": [
+                    {
+                      "name": "hour_utc",
+                      "expression": "`hour_utc`"
+                    },
+                    {
+                      "name": "actor",
+                      "expression": "`actor`"
+                    },
+                    {
+                      "name": "sum(events)",
+                      "expression": "SUM(`events`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "hour_utc",
+                  "displayName": "Hour (UTC)",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Hour of day (UTC)"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(events)",
+                  "displayName": "Events",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Events"
+                  }
+                },
+                "color": {
+                  "fieldName": "actor",
+                  "displayName": "Actor",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Human",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 1
+                        }
+                      },
+                      {
+                        "value": "Bot",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Activity by hour of day: human vs bot"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "w_daily",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "daily(event_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `event_date`)"
+                    },
+                    {
+                      "name": "actor",
+                      "expression": "`actor`"
+                    },
+                    {
+                      "name": "sum(events)",
+                      "expression": "SUM(`events`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(event_date)",
+                  "displayName": "Date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "title": "Date"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(events)",
+                  "displayName": "Events",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Events"
+                  }
+                },
+                "color": {
+                  "fieldName": "actor",
+                  "displayName": "Actor",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Human",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 1
+                        }
+                      },
+                      {
+                        "value": "Bot",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Events per day: human vs bot"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w_prs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_prs",
+                  "fields": [
+                    {
+                      "name": "daily(event_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `event_date`)"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "sum(pull_requests)",
+                      "expression": "SUM(`pull_requests`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(event_date)",
+                  "displayName": "Date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "title": "Date"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(pull_requests)",
+                  "displayName": "Pull requests",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Pull requests"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "Status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Opened",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 1
+                        }
+                      },
+                      {
+                        "value": "Merged",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 3
+                        }
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Pull requests per day: opened vs merged"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w_automation",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_automation",
+                  "fields": [
+                    {
+                      "name": "repo_name",
+                      "expression": "`repo_name`"
+                    },
+                    {
+                      "name": "prs_merged",
+                      "expression": "`prs_merged`"
+                    },
+                    {
+                      "name": "prs_opened",
+                      "expression": "`prs_opened`"
+                    },
+                    {
+                      "name": "bot_pct",
+                      "expression": "`bot_pct`"
+                    },
+                    {
+                      "name": "peak_daily_humans",
+                      "expression": "`peak_daily_humans`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "repo_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Repository",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "prs_merged",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "PRs merged",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "prs_opened",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "PRs opened",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "bot_pct",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "Bot share %",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "peak_daily_humans",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100004,
+                    "title": "Most humans in a day",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Repos merging the most PRs",
+                "showDescription": true,
+                "description": "Many of the busiest repos are fully automated: high bot share, few or no humans"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}
