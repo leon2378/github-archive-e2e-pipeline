@@ -5,6 +5,13 @@ Databricks. It turns every public GitHub event from [GH Archive](https://www.gha
 (1.5–2 million a day: pushes, pull requests, stars, forks and releases) into trending-repo rankings
 and activity analytics.
 
+![GitHub Activity Insights dashboard](docs/images/dashboard.png)
+
+*The **GitHub Activity Insights** AI/BI dashboard on 3 days of production data (5.37M events),
+deployed as code with the rest of the pipeline. [PDF version](docs/dashboard.pdf)*
+
+## Architecture
+
 ```mermaid
 flowchart LR
     GHA["GH Archive<br/>hourly JSON"] -->|"GitHub Actions<br/>daily 01:30 UTC"| ING["ingestion/gharchive.py<br/>slim + upload"]
