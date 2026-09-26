@@ -1,0 +1,16 @@
+# Lakeflow Spark Declarative Pipeline: landing volume -> bronze_events -> silver_events.
+resources:
+  pipelines:
+    gharchive_etl:
+      name: "[${bundle.target}] gharchive_etl"
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.gharchive.name}
+      serverless: true
+      root_path: ../src/gharchive_etl
+
+      libraries:
+        - glob:
+            include: ../src/gharchive_etl/transformations/**
+
+      configuration:
+        gharchive.landing_path: ${resources.volumes.landing.volume_path}/events

@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: stg_gharchive__events
+    description: One row per GitHub event. Thin view over silver_events.
+    columns:
+      - name: event_id
+        data_tests:
+          - not_null
+          # GH Archive occasionally repeats an event across adjacent hours. Warn, don't fail,
+          # and only scan recently loaded rows to keep the test cheap.
+          - unique:
+              config:
+                severity: warn
+                where: "_ingested_at >= current_timestamp() - interval 2 days"
+      - name: event_type
+        data_tests:
+          - not_null
+      - name: event_date
+        data_tests:
+          - not_null
+      - name: event_hour
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: repo_id
+        data_tests:
+          - not_null

@@ -1,0 +1,4 @@
+# Runtime dependencies for the ingestion job (ingestion/gharchive.py).
+databricks-sdk>=0.60,<1.0
+httpx>=0.28,<1.0
+orjson>=3.10,<4.0

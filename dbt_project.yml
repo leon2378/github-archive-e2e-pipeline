@@ -1,0 +1,19 @@
+name: gharchive
+version: "1.0.0"
+profile: gharchive
+
+model-paths: ["src/models"]
+macro-paths: ["src/macros"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Size of the "recent" window when ranking trending repositories, and how many to keep.
+  trending_window_days: 7
+  trending_top_n: 100
+
+models:
+  gharchive:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

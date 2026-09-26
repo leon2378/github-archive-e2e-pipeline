@@ -1,0 +1,4 @@
+# Everything needed to develop and test locally.
+-r requirements.txt
+pytest>=8.3
+ruff>=0.12

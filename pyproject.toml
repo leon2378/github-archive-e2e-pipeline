@@ -1,0 +1,16 @@
+# Tool configuration only. Dependencies live in requirements*.txt (works with venv or conda).
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# `spark` is injected into pipeline source files by the Lakeflow runtime.
+"src/gharchive_etl/**/*.py" = ["F821"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

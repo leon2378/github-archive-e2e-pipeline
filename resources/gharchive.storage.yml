@@ -1,0 +1,16 @@
+# Unity Catalog objects owned by this bundle: one schema per target, plus the landing volume
+# the ingestion job pushes files into. dbt creates the separate <schema>_gold schema itself.
+resources:
+  schemas:
+    gharchive:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: GitHub Archive pipeline (${bundle.target}) - landing volume plus bronze and silver tables.
+
+  volumes:
+    landing:
+      catalog_name: ${var.catalog}
+      # Referencing the schema resource makes the bundle create the schema first.
+      schema_name: ${resources.schemas.gharchive.name}
+      name: landing
+      comment: Slimmed hourly GH Archive files, written by ingestion/gharchive.py.

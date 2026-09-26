@@ -1,0 +1,40 @@
+# Lakeflow Job: refresh the pipeline, then build and test the dbt gold layer.
+# Runs daily at 03:00 UTC, after the GitHub Actions ingestion (01:30 UTC) has landed new files.
+resources:
+  jobs:
+    gharchive_daily:
+      name: "[${bundle.target}] gharchive_daily"
+      max_concurrent_runs: 1
+
+      schedule:
+        quartz_cron_expression: "0 0 3 * * ?"
+        timezone_id: UTC
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+
+      tasks:
+        - task_key: refresh_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.gharchive_etl.id}
+
+        - task_key: dbt_build
+          depends_on:
+            - task_key: refresh_pipeline
+          environment_key: dbt
+          dbt_task:
+            project_directory: ../
+            profiles_directory: dbt_profiles/
+            commands:
+              - "dbt deps --target=${bundle.target}"
+              - 'dbt build --target=${bundle.target} --vars "{catalog: ${var.catalog}, pipeline_schema: ${resources.schemas.gharchive.name}, warehouse_id: ${var.warehouse_id}}"'
+              # Fails the run if no new data has arrived, e.g. the ingestion workflow stopped.
+              - 'dbt source freshness --target=${bundle.target} --vars "{catalog: ${var.catalog}, pipeline_schema: ${resources.schemas.gharchive.name}, warehouse_id: ${var.warehouse_id}}"'
+
+      environments:
+        - environment_key: dbt
+          spec:
+            environment_version: "4"
+            dependencies:
+              - dbt-databricks>=1.11.0,<2.0.0

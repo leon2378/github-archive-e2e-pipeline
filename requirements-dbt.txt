@@ -1,0 +1,2 @@
+# Only needed to run dbt from your own machine; the Databricks job installs its own copy.
+dbt-databricks>=1.11,<2.0

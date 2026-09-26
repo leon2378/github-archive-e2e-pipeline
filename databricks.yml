@@ -1,0 +1,40 @@
+# GitHub Archive: End-to-End Data Pipeline
+# Declarative Automation Bundle (formerly "Databricks Asset Bundles").
+# Everything that runs in Databricks is defined here and in resources/*.yml.
+#
+#   databricks bundle validate            # check config
+#   databricks bundle deploy -t dev       # deploy your dev copy (default target)
+#   databricks bundle run gharchive_daily -t dev
+bundle:
+  name: gharchive
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog. Free Edition's default catalog is "workspace".
+    default: workspace
+  schema:
+    description: Schema for the landing volume and bronze/silver tables. dbt writes gold tables to <schema>_gold.
+    default: gharchive_dev
+  warehouse_id:
+    description: SQL warehouse that dbt runs on (Free Edition ships exactly one).
+    lookup:
+      warehouse: Serverless Starter Warehouse
+
+targets:
+  # We don't use `mode: development` here: it prefixes every resource name, including Unity Catalog
+  # schemas, which would make the landing volume path unpredictable for the ingestion job.
+  # Presets give us the useful parts (paused schedule, pipeline dev mode) with stable names.
+  dev:
+    default: true
+    presets:
+      trigger_pause_status: PAUSED
+      pipelines_development: true
+
+  prod:
+    variables:
+      schema: gharchive
+    presets:
+      trigger_pause_status: UNPAUSED

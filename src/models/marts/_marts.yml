@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: fct_repo_daily_activity
+    description: >
+      One row per repository per UTC day. Incremental: each run recomputes only the dates that
+      received new events and merges them, so late or backfilled data is handled correctly.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [event_date, repo_id]
+    columns:
+      - name: event_date
+        data_tests: [not_null]
+      - name: repo_id
+        data_tests: [not_null]
+      - name: stars
+        description: WatchEvents, which is what GitHub emits when someone stars a repo.
+      - name: unique_human_actors
+        description: Distinct non-bot accounts that did anything on the repo that day.
+      - name: _loaded_through
+        description: Latest silver ingestion timestamp included. Drives incremental runs.
+
+  - name: fct_hourly_activity
+    description: Event volume per UTC hour and event type, including bot activity.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [event_date, event_hour, event_type]
+    columns:
+      - name: event_hour
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+
+  - name: rpt_trending_repos
+    description: >
+      Top repositories by stars in the latest window (var trending_window_days), with growth
+      against the window before it. Rebuilt in full on every run.
+    columns:
+      - name: trending_rank
+        data_tests: [unique, not_null]
+      - name: star_growth_pct
+        description: Percent change in stars vs the prior window; null if the prior window had none.
+
+unit_tests:
+  - name: trending_ranks_by_recent_stars_and_computes_growth
+    description: >
+      Stars from the prior window count toward growth but not rank; repos with no recent stars
+      and events older than two windows are excluded.
+    model: rpt_trending_repos
+    overrides:
+      vars:
+        trending_window_days: 7
+        trending_top_n: 10
+    given:
+      - input: ref('fct_repo_daily_activity')
+        rows:
+          # as_of_date = 2026-09-20: window is 09-14..09-20, prior window 09-07..09-13
+          - { event_date: "2026-09-20", repo_id: 1, repo_name: "a/rising", stars: 50, forks: 2 }
+          - { event_date: "2026-09-10", repo_id: 1, repo_name: "a/rising", stars: 10, forks: 0 }
+          - { event_date: "2026-09-18", repo_id: 2, repo_name: "b/steady", stars: 20, forks: 0 }
+          - { event_date: "2026-09-10", repo_id: 2, repo_name: "b/steady", stars: 20, forks: 0 }
+          - { event_date: "2026-09-19", repo_id: 3, repo_name: "c/brand-new", stars: 30, forks: 1 }
+          - { event_date: "2026-09-12", repo_id: 4, repo_name: "d/cooling", stars: 99, forks: 0 }
+          - { event_date: "2026-09-01", repo_id: 5, repo_name: "e/ancient", stars: 500, forks: 0 }
+    expect:
+      rows:
+        - { trending_rank: 1, repo_name: "a/rising", stars_in_window: 50, stars_prior_window: 10, star_delta: 40, star_growth_pct: 400.0 }
+        - { trending_rank: 2, repo_name: "c/brand-new", stars_in_window: 30, stars_prior_window: 0, star_delta: 30, star_growth_pct: null }
+        - { trending_rank: 3, repo_name: "b/steady", stars_in_window: 20, stars_prior_window: 20, star_delta: 0, star_growth_pct: 0.0 }

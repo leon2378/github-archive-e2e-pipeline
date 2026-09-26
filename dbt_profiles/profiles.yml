@@ -1,0 +1,25 @@
+# dbt profiles, used both by the Databricks job and for local runs.
+#
+# In the job, Databricks injects DBT_HOST and DBT_ACCESS_TOKEN, and the job passes the catalog,
+# pipeline schema and warehouse id as --vars. Locally, set DBT_HOST, DBT_ACCESS_TOKEN and
+# DBT_WAREHOUSE_ID yourself (see README) and run with --profiles-dir dbt_profiles.
+gharchive:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      host: "{{ env_var('DBT_HOST') }}"
+      token: "{{ env_var('DBT_ACCESS_TOKEN') }}"
+      http_path: "/sql/1.0/warehouses/{{ var('warehouse_id', env_var('DBT_WAREHOUSE_ID', '')) }}"
+      catalog: "{{ var('catalog', 'workspace') }}"
+      schema: "{{ var('pipeline_schema', 'gharchive_dev') }}_gold"
+      threads: 4
+
+    prod:
+      type: databricks
+      host: "{{ env_var('DBT_HOST') }}"
+      token: "{{ env_var('DBT_ACCESS_TOKEN') }}"
+      http_path: "/sql/1.0/warehouses/{{ var('warehouse_id', env_var('DBT_WAREHOUSE_ID', '')) }}"
+      catalog: "{{ var('catalog', 'workspace') }}"
+      schema: "{{ var('pipeline_schema', 'gharchive') }}_gold"
+      threads: 4
