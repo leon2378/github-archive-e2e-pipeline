@@ -177,58 +177,78 @@ dbt deps --profiles-dir dbt_profiles
 dbt build --profiles-dir dbt_profiles
 ```
 
+## Results
+
+Measured in production after a 3-day backfill (Sep 23–25, 2026):
+
+| | |
+|---|---|
+| Events processed | 5.37M over 3 days (1.48M–2.12M per day) |
+| Daily run time | ~4 minutes for the pipeline plus dbt, on serverless compute |
+| Landed data volume | −55% from payload slimming at ingestion |
+| Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
+| Test coverage | 10 pytest tests, 14 dbt data tests, 1 dbt unit test, source freshness check |
+| Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
+
 ## Design decisions
 
-These are the trade-offs worth talking through in an interview.
+The key choices, and the trade-offs behind them.
 
-- **Slim at ingestion.** Ingestion keeps each event's envelope plus scalar payload fields and
-  drops nested objects (avatar/URL blocks, PR and issue bodies). That roughly halves the data to
-  land and store (−55% measured), and gives one uniform bronze shape across ~18 event types. Trade-off: dropped fields can't be
-  recovered from bronze, so the ingestion script is the one place to change if a new metric needs them.
+- **Slim at ingestion.** Ingestion keeps each event's envelope plus its scalar payload fields,
+  and drops nested objects (avatar/URL blocks, PR and issue bodies). That roughly halves the data
+  to land and store (−55% measured), and gives one uniform bronze shape across ~18 event types.
+  Trade-off: dropped fields can't be recovered from bronze, so the ingestion script is the one
+  place to change if a new metric needs them.
 - **Push-based landing zone.** Free Edition compute can only reach a small set of trusted
   domains, so extraction runs in GitHub Actions and pushes files to a Unity Catalog volume. This
   mirrors a common real-world setup where a vendor or upstream team drops files for you.
 - **Idempotent, self-healing ingestion.** Files are named by hour and skipped if already present,
-  so the daily run uses a 48-hour overlapping window. A missed run fixes itself the next day,
-  and backfills can be re-run safely. Auto Loader tracks processed files, so nothing is loaded twice.
+  so the daily run uses an overlapping 48-hour window. A missed run fixes itself the next day,
+  and backfills can be re-run safely. Auto Loader tracks processed files, so no file is loaded
+  twice. Events that GH Archive itself repeats are caught by a dbt `unique` test instead.
 - **Explicit bronze schema with rescued data.** New or unexpected fields go to `_rescued_data`
-  instead of breaking the stream. `payload` varies by event type, so it's kept as JSON text.
-- **Quality gates at two layers.** Pipeline expectations drop invalid rows and warn on unknown
-  event types, with the counts visible in the pipeline UI. dbt tests enforce grain and ranges,
-  and a dbt unit test checks the trending logic against hand-computed results.
-- **Incremental models that handle late data.** Gold facts recompute only the dates that got new
-  rows (tracked with `_loaded_through`) and merge them. Backfilling last month fixes last month's
-  aggregates without a full refresh.
-- **Dev/prod isolation.** Separate schemas per target, paused schedules in dev, and prod deployed
-  only from `main` by CI.
-- **Freshness monitoring.** `dbt source freshness` fails the job if no new data has arrived,
-  which catches silent upstream failures. For example, GitHub disables scheduled workflows after
-  60 days without repo activity.
+  instead of breaking the stream. `payload` has a different shape for each event type, so it's
+  kept as JSON text and parsed in silver.
+- **Lakeflow for ingestion, dbt for business logic.** Bronze and silver run in a Lakeflow
+  pipeline, which has Auto Loader, streaming and expectations built in. Gold lives in dbt, where
+  business logic is plain SQL that is version-controlled, tested, and portable to other warehouses.
+- **Quality gates at two layers.** Pipeline expectations (4 blocking rules, 1 warning) drop
+  invalid rows and flag unknown event types, with results in the pipeline UI. dbt tests enforce
+  grain and value ranges, and a dbt unit test checks the trending logic against hand-computed
+  results.
+- **Incremental models that handle late data.** Gold facts recompute only the dates that received
+  new rows (tracked with `_loaded_through`) and merge them. Backfilling last month fixes last
+  month's aggregates without a full refresh.
+- **Dev/prod isolation with safe deploys.** Each target gets its own schemas, pipeline, job and
+  dashboard, and dev schedules are paused. CI deploys prod from `main`, and it refuses destructive
+  changes (anything that deletes or recreates a resource) until someone reviews the plan and
+  approves it by hand.
+- **Dashboard as code.** The AI/BI dashboard is a JSON file in the repo. Its queries use
+  unqualified table names, and each target points them at its own gold schema, so the dev and
+  prod dashboards come from one definition.
+- **Freshness monitoring.** `dbt source freshness` warns after 36 hours without new data and fails
+  the job after 72. This catches silent upstream failures, such as GitHub disabling scheduled
+  workflows after 60 days without repo activity.
 
-## Free Edition notes
+## Running on Databricks Free Edition
 
-- Serverless only, with daily compute quotas. Backfill a few days at a time rather than a whole month.
-- One SQL warehouse (2X-Small, the "Serverless Starter Warehouse") and one active pipeline per
-  pipeline type, so don't run the dev and prod pipelines at the same time.
-- Accounts inactive for a long time may be deleted. The code on GitHub is the portfolio, so keep
-  screenshots of the dashboard and pipeline graph in the repo.
+The whole project runs on the free tier, which shaped a few of the choices above:
 
-## Ideas for next steps
+- **Serverless only, with daily compute quotas.** Backfills run a few days at a time.
+- **One SQL warehouse** (the 2X-Small "Serverless Starter Warehouse"), shared by dbt and the
+  dashboard.
+- **One active pipeline per pipeline type,** so the dev and prod pipelines can't run at the same
+  time.
+- **Limited outbound internet from Databricks compute,** which is why extraction runs on GitHub
+  Actions.
 
-- **Event-driven orchestration:** replace the 03:00 schedule with a file-arrival trigger on the volume.
+## Future improvements
+
+- **Event-driven orchestration:** replace the 03:00 schedule with a file-arrival trigger on the
+  landing volume.
 - **SCD Type 2 dimension:** track repo renames and ownership transfers with `AUTO CDC`.
 - **Streaming:** add a real-time source such as the Bluesky Jetstream firehose.
-- **LLM enrichment:** classify trending repos by topic with `ai_query()` or an LLM API.
-- **Metric views:** define "stars", "active repos" and similar metrics once in Unity Catalog metric views.
-
-## Resume bullets (fill in your real numbers)
-
-- Built an end-to-end lakehouse pipeline on Databricks processing ~1.5–2M GitHub events/day:
-  Python ingestion on GitHub Actions → Auto Loader → Lakeflow Declarative Pipelines
-  (bronze/silver) → dbt gold models → AI/BI dashboard with Genie.
-- Built idempotent, self-healing hourly ingestion with backfill support. Payload slimming cut
-  landed data by 55%.
-- Designed incremental dbt models that recompute only affected dates, handling late and
-  backfilled data correctly. Covered with **N** data tests, a unit test, and freshness checks.
-- Automated CI/CD with GitHub Actions and Declarative Automation Bundles: lint and test on every
-  PR, deploy to production on merge.
+- **LLM enrichment:** classify trending repos by topic with `ai_query()`.
+- **Metric views:** define "stars", "active repos" and similar metrics once, in Unity Catalog
+  metric views.
+- **Richer dashboard:** add a weekday × hour heatmap and a date-range filter as history builds up.
