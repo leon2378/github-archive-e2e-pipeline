@@ -25,9 +25,43 @@
         "  stars_in_window,\n",
         "  stars_prior_window,\n",
         "  star_growth_pct,\n",
-        "  forks_in_window\n",
+        "  forks_in_window,\n",
+        "  coalesce(language, 'Not enriched yet') as language\n",
         "from rpt_trending_repos\n",
         "where trending_rank <= 20"
+      ]
+    },
+    {
+      "name": "ds_languages",
+      "displayName": "Trending languages",
+      "queryLines": [
+        "select\n",
+        "  concat(lpad(cast(language_rank as string), 2, '0'), '. ', language) as language_label,\n",
+        "  language,\n",
+        "  stars_in_window,\n",
+        "  repos_with_stars,\n",
+        "  stars_share_pct,\n",
+        "  trending_repos,\n",
+        "  top_repo\n",
+        "from rpt_trending_languages\n",
+        "where language_rank <= 12"
+      ]
+    },
+    {
+      "name": "ds_breakout",
+      "displayName": "Breakout new repos",
+      "queryLines": [
+        "select\n",
+        "  repo_name,\n",
+        "  coalesce(language, '-') as language,\n",
+        "  stars_in_window,\n",
+        "  total_stars,\n",
+        "  datediff(as_of_date, to_date(repo_created_at)) as age_days,\n",
+        "  description\n",
+        "from rpt_trending_repos\n",
+        "where is_new_repo\n",
+        "order by stars_in_window desc, total_stars desc\n",
+        "limit 15"
       ]
     },
     {
@@ -358,6 +392,10 @@
                       "expression": "`repo`"
                     },
                     {
+                      "name": "language",
+                      "expression": "`language`"
+                    },
+                    {
                       "name": "sum(stars_in_window)",
                       "expression": "SUM(`stars_in_window`)"
                     }
@@ -390,13 +428,20 @@
                     "title": "Repository"
                   }
                 },
+                "color": {
+                  "fieldName": "language",
+                  "displayName": "Language",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
                 "label": {
                   "show": true
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Top 20 trending repos",
+                "title": "Top 20 trending repos, by language",
                 "showDescription": true,
                 "description": "Most stars in the latest 7 days, ties broken by forks"
               }
@@ -406,7 +451,297 @@
             "x": 0,
             "y": 6,
             "width": 3,
-            "height": 8
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "w_languages",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_languages",
+                  "fields": [
+                    {
+                      "name": "language_label",
+                      "expression": "`language_label`"
+                    },
+                    {
+                      "name": "sum(stars_in_window)",
+                      "expression": "SUM(`stars_in_window`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(stars_in_window)",
+                  "displayName": "Stars",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Stars (7 days)"
+                  }
+                },
+                "y": {
+                  "fieldName": "language_label",
+                  "displayName": "Language",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Language"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Trending languages",
+                "showDescription": true,
+                "description": "Stars in the latest 7 days across enriched repos, by primary language"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "w_breakout",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_breakout",
+                  "fields": [
+                    {
+                      "name": "repo_name",
+                      "expression": "`repo_name`"
+                    },
+                    {
+                      "name": "language",
+                      "expression": "`language`"
+                    },
+                    {
+                      "name": "stars_in_window",
+                      "expression": "`stars_in_window`"
+                    },
+                    {
+                      "name": "total_stars",
+                      "expression": "`total_stars`"
+                    },
+                    {
+                      "name": "age_days",
+                      "expression": "`age_days`"
+                    },
+                    {
+                      "name": "description",
+                      "expression": "`description`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 15,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "repo_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Repository",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "language",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Language",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "stars_in_window",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "Stars (7 days)",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "total_stars",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "Total stars",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "age_days",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100004,
+                    "title": "Age (days)",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "description",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100005,
+                    "title": "Description",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Breakout new repos",
+                "showDescription": true,
+                "description": "Trending repos created in the last 30 days, from GitHub API metadata"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 6,
+            "height": 7
           }
         },
         {
@@ -493,10 +828,10 @@
             }
           },
           "position": {
-            "x": 3,
-            "y": 6,
-            "width": 3,
-            "height": 8
+            "x": 0,
+            "y": 22,
+            "width": 6,
+            "height": 7
           }
         },
         {
@@ -584,7 +919,7 @@
           },
           "position": {
             "x": 0,
-            "y": 14,
+            "y": 29,
             "width": 3,
             "height": 6
           }
@@ -674,7 +1009,7 @@
           },
           "position": {
             "x": 3,
-            "y": 14,
+            "y": 29,
             "width": 3,
             "height": 6
           }
@@ -870,7 +1205,7 @@
           },
           "position": {
             "x": 0,
-            "y": 20,
+            "y": 35,
             "width": 6,
             "height": 8
           }

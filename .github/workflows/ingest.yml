@@ -1,4 +1,4 @@
-name: Ingest GH Archive
+name: Daily ingestion
 
 on:
   schedule:
