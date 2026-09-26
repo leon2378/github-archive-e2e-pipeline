@@ -138,8 +138,8 @@ Want to see the ingestion without Databricks? Write to a local folder instead:
 
 ### 4. The dashboard
 
-The **GitHub Archive Pulse** AI/BI dashboard is deployed with the bundle, like the pipeline and
-job. Find it under **Dashboards** as `[dev] GitHub Archive Pulse` or `[prod] GitHub Archive Pulse`.
+The **GitHub Activity Insights** AI/BI dashboard is deployed with the bundle, like the pipeline and
+job. Find it under **Dashboards** as `[dev] GitHub Activity Insights` or `[prod] GitHub Activity Insights`.
 It contains:
 
 - KPIs: events, active repos, stars, PRs merged, releases, and bot share
@@ -147,13 +147,13 @@ It contains:
 - events per day (human vs bot) and pull requests opened vs merged per day
 - the repos merging the most PRs, with how automated each one is
 
-The dashboard is defined in `src/dashboards/gharchive_pulse.lvdash.json`. Its queries use
+The dashboard is defined in `src/dashboards/gharchive_insights.lvdash.json`. Its queries use
 unqualified table names, and `dataset_schema` in `resources/gharchive.dashboard.yml` points them at
 the right gold schema for each target. To change it, edit the dev dashboard in the UI, then pull
 the changes back into the repo:
 
 ```powershell
-databricks bundle generate dashboard --resource gharchive_pulse --force
+databricks bundle generate dashboard --resource gharchive_insights --force
 ```
 
 Every published dashboard also has **Ask Genie**, so viewers can ask questions in plain English,

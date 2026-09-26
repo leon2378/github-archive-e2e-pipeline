@@ -2,9 +2,9 @@
 # dataset_catalog/dataset_schema point them at this target's gold schema (dev or prod).
 resources:
   dashboards:
-    gharchive_pulse:
-      display_name: "[${bundle.target}] GitHub Archive Pulse"
-      file_path: ../src/dashboards/gharchive_pulse.lvdash.json
+    gharchive_insights:
+      display_name: "[${bundle.target}] GitHub Activity Insights"
+      file_path: ../src/dashboards/gharchive_insights.lvdash.json
       warehouse_id: ${var.warehouse_id}
       dataset_catalog: ${var.catalog}
       dataset_schema: ${var.schema}_gold

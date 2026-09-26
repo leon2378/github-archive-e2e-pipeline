@@ -92,7 +92,7 @@
             "name": "w_title",
             "multilineTextboxSpec": {
               "lines": [
-                "# GitHub Archive Pulse\n",
+                "# GitHub Activity Insights\n",
                 "What the world is building on GitHub: every public event from [GH Archive](https://www.gharchive.org), refreshed daily by a Lakeflow pipeline and dbt. Times are UTC."
               ]
             }
