@@ -25,6 +25,8 @@ Measured in production after a 3-day backfill (Sep 23–25, 2026):
 | Daily run time | ~4 minutes for the pipeline plus dbt, on serverless compute |
 | Landed data volume | −55% from payload slimming at ingestion |
 | Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
+| Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the 1,000 requests/hour token limit |
+| Enrichment coverage | 95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
 | Test coverage | 22 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
 | Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
 
@@ -146,6 +148,14 @@ Measured by this pipeline on 3 days of production data (Sep 23–25, 2026, 72 ho
 | Bots | 18% of all events, 34% of PR events and 54% of issue comments |
 | Size | −55% after slimming (110.5 MB raw → 50.2 MB, measured on 8 sample hours) |
 | Duplicates | 3 repeated event IDs in 5.37M events, flagged by the dbt `unique` test |
+
+From the first repo enrichment run (Sep 26, 2026, 835 repos):
+
+| | |
+|---|---|
+| Trending languages | Python 33% and TypeScript 26% of trending-window stars; Rust, JavaScript and Go ~7–8% each |
+| New repos | 20 of the top 100 trending repos are under 30 days old; #1 is 8 days old with 25K stars |
+| Repo metadata | 16 distinct licenses, 6.2 topics per repo on average, 2% with no primary language |
 
 Since GitHub's 2025 Events API changes, payloads are much thinner: pushes no longer list their
 commits, and pull request merges arrive as `action = 'merged'`.
