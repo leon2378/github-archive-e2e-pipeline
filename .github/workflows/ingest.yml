@@ -18,6 +18,10 @@ concurrency:
   group: ingest
   cancel-in-progress: false
 
+# The built-in GITHUB_TOKEN is only used to read public repo metadata.
+permissions:
+  contents: read
+
 jobs:
   ingest:
     runs-on: ubuntu-latest
@@ -38,3 +42,13 @@ jobs:
           LANDING_VOLUME_PATH: /Volumes/workspace/gharchive/landing
           INGEST_START: ${{ inputs.start }}
           INGEST_END: ${{ inputs.end }}
+      - name: Enrich repo metadata from the GitHub API
+        # Independent of the step above, so it still runs if the GH Archive download failed.
+        if: ${{ !cancelled() }}
+        run: python -m ingestion.github_repos
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          LANDING_VOLUME_PATH: /Volumes/workspace/gharchive/landing
+          ENRICHMENT_QUEUE_TABLE: workspace.gharchive_gold.ops_repo_enrichment_queue

@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: ops_repo_enrichment_queue
+    description: >
+      Prioritised list of repos for the next GitHub API enrichment run. Read by
+      ingestion/github_repos.py, which fetches from the top until the queue or its API quota
+      runs out.
+    columns:
+      - name: priority
+        description: 1 = fetch first.
+        data_tests: [unique, not_null]
+      - name: repo_id
+        data_tests: [unique, not_null]
+      - name: repo_name
+        description: Latest known owner/name; GitHub redirects renamed repos.
+        data_tests: [not_null]
+      - name: reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [trending, most_active]
+      - name: etag
+        description: ETag from the last fetch, sent as If-None-Match (null until known).
+
+unit_tests:
+  - name: queue_puts_trending_first_dedupes_and_ranks_active_repos_by_humans
+    description: >
+      Trending repos come first; a repo that is both trending and active appears once, as
+      trending. Active repos are ranked by human actors on the latest day only, bot-only repos
+      are skipped, and the active list is capped by var enrichment_active_top_n.
+    model: ops_repo_enrichment_queue
+    overrides:
+      vars:
+        enrichment_active_top_n: 2
+    given:
+      - input: ref('fct_repo_daily_activity')
+        rows:
+          - { event_date: "2026-09-25", repo_id: 10, repo_name: "a/trend", unique_human_actors: 50, total_events: 100 }
+          - { event_date: "2026-09-25", repo_id: 20, repo_name: "b/busy", unique_human_actors: 40, total_events: 500 }
+          - { event_date: "2026-09-25", repo_id: 30, repo_name: "c/quiet", unique_human_actors: 5, total_events: 9 }
+          - { event_date: "2026-09-25", repo_id: 40, repo_name: "d/bots", unique_human_actors: 0, total_events: 999 }
+          - { event_date: "2026-09-20", repo_id: 50, repo_name: "e/old", unique_human_actors: 999, total_events: 999 }
+      - input: ref('rpt_trending_repos')
+        rows:
+          - { trending_rank: 1, repo_id: 10, repo_name: "a/trend" }
+          - { trending_rank: 2, repo_id: 60, repo_name: "f/stars" }
+    expect:
+      rows:
+        - { priority: 1, repo_id: 10, repo_name: "a/trend", reason: "trending" }
+        - { priority: 2, repo_id: 60, repo_name: "f/stars", reason: "trending" }
+        - { priority: 3, repo_id: 20, repo_name: "b/busy", reason: "most_active" }

@@ -10,10 +10,15 @@ vars:
   # Size of the "recent" window when ranking trending repositories, and how many to keep.
   trending_window_days: 7
   trending_top_n: 100
+  # How many of the most active repos (beyond trending) to queue for GitHub API enrichment.
+  # Trending + active stays under the GitHub Actions token's 1,000 requests/hour.
+  enrichment_active_top_n: 800
 
 models:
   gharchive:
     staging:
       +materialized: view
     marts:
+      +materialized: table
+    ops:
       +materialized: table
