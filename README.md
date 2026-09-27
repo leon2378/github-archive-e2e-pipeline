@@ -12,8 +12,9 @@ dimension.
 
 ![GitHub Activity Insights dashboard](docs/images/dashboard.png)
 
-*The **GitHub Activity Insights** AI/BI dashboard on 3 days of production data (5.37M events),
-deployed as code with the rest of the pipeline. [PDF version](docs/dashboard.pdf)*
+*The **GitHub Activity Insights** AI/BI dashboard on production data from Sep 23–27, 2026
+(8.34M events across 2.11M active repos), deployed as code with the rest of the pipeline.
+[PDF version](docs/dashboard.pdf)*
 
 ## Results
 

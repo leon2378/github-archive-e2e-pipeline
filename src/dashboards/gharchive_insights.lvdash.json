@@ -57,7 +57,7 @@
         "  stars_in_window,\n",
         "  total_stars,\n",
         "  datediff(as_of_date, to_date(repo_created_at)) as age_days,\n",
-        "  description\n",
+        "  coalesce(description, '') as description\n",
         "from rpt_trending_repos\n",
         "where is_new_repo\n",
         "order by stars_in_window desc, total_stars desc\n",
@@ -68,35 +68,63 @@
       "name": "ds_hourly",
       "displayName": "Activity by hour (human vs bot)",
       "queryLines": [
+        "with complete_days as (\n",
+        "  select event_date from fct_hourly_activity\n",
+        "  group by event_date having count(distinct event_hour) = 24\n",
+        "),\n",
+        "hourly as (\n",
+        "  select event_hour, sum(events) as events, sum(bot_events) as bot_events\n",
+        "  from fct_hourly_activity\n",
+        "  where event_date in (select event_date from complete_days)\n",
+        "  group by event_hour\n",
+        ")\n",
         "select lpad(cast(event_hour as string), 2, '0') as hour_utc, 'Human' as actor,\n",
-        "       sum(events - bot_events) as events\n",
-        "from fct_hourly_activity group by event_hour\n",
+        "       events - bot_events as events\n",
+        "from hourly\n",
         "union all\n",
         "select lpad(cast(event_hour as string), 2, '0') as hour_utc, 'Bot' as actor,\n",
-        "       sum(bot_events) as events\n",
-        "from fct_hourly_activity group by event_hour"
+        "       bot_events as events\n",
+        "from hourly"
       ]
     },
     {
       "name": "ds_daily",
       "displayName": "Activity by day (human vs bot)",
       "queryLines": [
-        "select event_date, 'Human' as actor, sum(events - bot_events) as events\n",
-        "from fct_hourly_activity group by event_date\n",
+        "with complete_days as (\n",
+        "  select event_date from fct_hourly_activity\n",
+        "  group by event_date having count(distinct event_hour) = 24\n",
+        "),\n",
+        "daily as (\n",
+        "  select event_date, sum(events) as events, sum(bot_events) as bot_events\n",
+        "  from fct_hourly_activity\n",
+        "  where event_date in (select event_date from complete_days)\n",
+        "  group by event_date\n",
+        ")\n",
+        "select event_date, 'Human' as actor, events - bot_events as events from daily\n",
         "union all\n",
-        "select event_date, 'Bot' as actor, sum(bot_events) as events\n",
-        "from fct_hourly_activity group by event_date"
+        "select event_date, 'Bot' as actor, bot_events as events from daily"
       ]
     },
     {
       "name": "ds_prs",
       "displayName": "Pull requests per day",
       "queryLines": [
-        "select event_date, 'Opened' as status, sum(pull_requests_opened) as pull_requests\n",
-        "from fct_repo_daily_activity group by event_date\n",
+        "with complete_days as (\n",
+        "  select event_date from fct_hourly_activity\n",
+        "  group by event_date having count(distinct event_hour) = 24\n",
+        "),\n",
+        "daily as (\n",
+        "  select event_date,\n",
+        "         sum(pull_requests_opened) as opened,\n",
+        "         sum(pull_requests_merged) as merged\n",
+        "  from fct_repo_daily_activity\n",
+        "  where event_date in (select event_date from complete_days)\n",
+        "  group by event_date\n",
+        ")\n",
+        "select event_date, 'Opened' as status, opened as pull_requests from daily\n",
         "union all\n",
-        "select event_date, 'Merged' as status, sum(pull_requests_merged) as pull_requests\n",
-        "from fct_repo_daily_activity group by event_date"
+        "select event_date, 'Merged' as status, merged as pull_requests from daily"
       ]
     },
     {
@@ -823,7 +851,9 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Activity by hour of day: human vs bot"
+                "title": "Activity by hour of day: human vs bot",
+                "showDescription": true,
+                "description": "Complete UTC days only"
               }
             }
           },
@@ -913,7 +943,9 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Events per day: human vs bot"
+                "title": "Events per day: human vs bot",
+                "showDescription": true,
+                "description": "Complete UTC days only"
               }
             }
           },
@@ -1003,7 +1035,9 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Pull requests per day: opened vs merged"
+                "title": "Pull requests per day: opened vs merged",
+                "showDescription": true,
+                "description": "Complete UTC days only"
               }
             }
           },
