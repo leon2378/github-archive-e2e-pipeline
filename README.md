@@ -5,10 +5,10 @@
 
 **What is the world building right now?** This project is an end-to-end lakehouse pipeline on
 Databricks. It turns every public GitHub event from [GH Archive](https://www.gharchive.org)
-(1.5–2 million a day: pushes, pull requests, stars, forks and releases) into trending-repo rankings
-and activity analytics. The repos that matter are enriched from the GitHub REST API (language,
-topics, license, age), and their attributes are tracked over time as a Type 2 slowly changing
-dimension.
+(1.5–2.4 million a day: pushes, pull requests, stars, forks and releases) into trending-repo
+rankings and activity analytics. The repos that matter are enriched from the GitHub REST API
+(language, topics, license, age), and their attributes are tracked over time as a Type 2 slowly
+changing dimension.
 
 ![GitHub Activity Insights dashboard](docs/images/dashboard.png)
 
@@ -106,8 +106,9 @@ The key choices, and the trade-offs behind them.
   The Python job just works the queue from the top, so business rules never hide in extraction
   code.
 - **Conditional requests to stay within quota.** The GitHub Actions token allows 1,000 requests
-  an hour. The queue carries each repo's last ETag, and an unchanged repo answers 304, which
-  doesn't count against the limit, so re-checking known repos is nearly free. The job stops
+  an hour. The queue carries each repo's last ETag, and a repo that hasn't changed answers 304,
+  which doesn't count against the limit, so re-checking it is free. Busy repos change daily and
+  still cost a request; the savings come from the weekly refresh of quieter repos. The job stops
   cleanly when quota runs low, and missing or blocked repos are recorded and skipped for 30 days
   instead of being retried every run.
 - **Slowly changing attributes vs fast-moving metrics.** Name, owner, language, topics, license
@@ -290,6 +291,9 @@ and job. Find it under **Dashboards** as `[dev] GitHub Activity Insights` or
 - activity by hour of day split into human vs bot
 - events per day (human vs bot) and pull requests opened vs merged per day
 - the repos merging the most PRs, with how automated each one is
+
+The hourly and daily charts use complete UTC days only (all 24 hours loaded), so a partial
+latest day doesn't inflate its hours or show a false drop.
 
 The dashboard is defined in `src/dashboards/gharchive_insights.lvdash.json`. Its queries use
 unqualified table names, and `dataset_schema` in `resources/gharchive.dashboard.yml` points them at
