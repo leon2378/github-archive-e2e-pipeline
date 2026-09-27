@@ -55,8 +55,10 @@ flowchart LR
     Q -.->|"next run's<br/>fetch list"| ENR
 ```
 
-The Lakeflow pipeline graph from its first run in dev: Auto Loader → `bronze_events` →
-`silver_events`, 320K events, all 5 data quality expectations met.
+The Lakeflow pipeline in production, with two Auto Loader flows. Events: `bronze_events` →
+`silver_events` (2M rows in this run). Repos: `bronze_repos` → `silver_repo_fetches` (the fetch
+log, with expectations) and, through the `repo_snapshots` view, `silver_repo_history` (SCD Type 2
+via `AUTO CDC`, 834 repos upserted).
 
 ![Lakeflow pipeline graph](docs/images/pipeline_graph.png)
 
