@@ -285,6 +285,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Unity Catalog volume to upload to. Default: {DEFAULT_VOLUME_PATH}",
     )
     parser.add_argument("--output-dir", type=Path, help="Write locally instead of Databricks.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Run even if enrichment already landed a file today (UTC).",
+    )
     return parser.parse_args(argv)
 
 
@@ -292,6 +297,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # The workflow has a backup schedule in case GitHub drops the first run, so enrichment runs
+    # at most once per UTC day: a second run would only spend API quota on the same repos.
+    sink: Sink = LocalSink(args.output_dir) if args.output_dir else VolumeSink(args.volume_path)
+    today = f"repos/{datetime.now(UTC):%Y-%m-%d}"
+    if not args.force and sink.has_files(today):
+        log.info("Enrichment already ran today (%s has files); skipping. Use --force.", today)
+        return 0
 
     if args.queue_file:
         items = read_queue_file(args.queue_file, args.limit)
@@ -310,19 +323,18 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         log.warning("GITHUB_TOKEN not set: unauthenticated requests are limited to 60/hour.")
 
-    sink: Sink = LocalSink(args.output_dir) if args.output_dir else VolumeSink(args.volume_path)
     log.info("Enriching up to %d of %d queued repos", args.max_requests, len(items))
     with make_client(token) as client:
         records, counts = run(items, client, max_requests=args.max_requests)
     log.info("Results: %s", dict(counts))
 
     if records:
-        now = datetime.now(UTC)
+        rel_path = target_path(datetime.now(UTC))
         with tempfile.TemporaryDirectory() as tmp:
             local = Path(tmp) / "repos.json.gz"
             write_ndjson_gz(records, local)
-            sink.put(local, target_path(now))
-        log.info("Landed %d records at %s", len(records), target_path(now))
+            sink.put(local, rel_path)
+        log.info("Landed %d records at %s", len(records), rel_path)
 
     attempted = sum(counts[s] for s in ("ok", "not_modified", "not_found", "blocked", "error"))
     return 1 if attempted and counts["error"] > attempted / 2 else 0

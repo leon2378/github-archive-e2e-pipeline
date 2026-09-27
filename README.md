@@ -27,14 +27,14 @@ Measured in production after a 3-day backfill (Sep 23–25, 2026):
 | Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
 | Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the 1,000 requests/hour token limit |
 | Enrichment coverage | 95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
-| Test coverage | 22 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
+| Test coverage | 23 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
 | Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    GHA["GH Archive<br/>hourly JSON"] -->|"GitHub Actions<br/>daily 01:30 UTC"| ING["ingestion/gharchive.py<br/>slim + upload"]
+    GHA["GH Archive<br/>hourly JSON"] -->|"GitHub Actions<br/>daily 01:17 UTC<br/>(+ 02:23 backup)"| ING["ingestion/gharchive.py<br/>slim + upload"]
     API["GitHub REST API<br/>repo metadata"] -->|"conditional requests<br/>(ETags)"| ENR["ingestion/github_repos.py<br/>works the queue"]
     ING --> VOL[("UC volume<br/>landing")]
     ENR --> VOL
@@ -89,6 +89,11 @@ The key choices, and the trade-offs behind them.
   so the daily run uses an overlapping 48-hour window. A missed run fixes itself the next day,
   and backfills can be re-run safely. Auto Loader tracks processed files, so no file is loaded
   twice. Events that GH Archive itself repeats are caught by a dbt `unique` test instead.
+- **A schedule that survives dropped runs.** GitHub can delay or drop scheduled workflows at busy
+  times, and it dropped this project's first nightly run (scheduled for 01:30 UTC). The workflow
+  now runs at unusual minutes (01:17 UTC) with a backup at 02:23, both before the 03:00
+  Databricks job. The backup is safe to repeat: landed hours are skipped, and enrichment checks
+  for a file from today and runs at most once per day, so it never spends API quota twice.
 - **Explicit bronze schema with rescued data.** New or unexpected fields go to `_rescued_data`
   instead of breaking the stream. `payload` has a different shape for each event type, so it's
   kept as JSON text and parsed in silver.

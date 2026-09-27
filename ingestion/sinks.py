@@ -9,6 +9,7 @@ from typing import Protocol
 
 class Sink(Protocol):
     def exists(self, rel_path: str) -> bool: ...
+    def has_files(self, rel_dir: str) -> bool: ...
     def put(self, local: Path, rel_path: str) -> None: ...
 
 
@@ -38,6 +39,13 @@ class VolumeSink:
             return False
         return True
 
+    def has_files(self, rel_dir: str) -> bool:
+        try:
+            entries = self.client.files.list_directory_contents(f"{self.root}/{rel_dir}")
+            return any(not entry.is_directory for entry in entries)
+        except self._not_found:
+            return False
+
     def put(self, local: Path, rel_path: str) -> None:
         with local.open("rb") as f:
             self.client.files.upload(f"{self.root}/{rel_path}", f, overwrite=True)
@@ -51,6 +59,10 @@ class LocalSink:
 
     def exists(self, rel_path: str) -> bool:
         return (self.root / rel_path).exists()
+
+    def has_files(self, rel_dir: str) -> bool:
+        folder = self.root / rel_dir
+        return folder.is_dir() and any(p.is_file() for p in folder.iterdir())
 
     def put(self, local: Path, rel_path: str) -> None:
         target = self.root / rel_path

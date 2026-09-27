@@ -2,9 +2,12 @@ name: Daily ingestion
 
 on:
   schedule:
-    # 01:30 UTC daily, ahead of the 03:00 UTC Databricks job. The default 48-hour look-back
-    # overlaps the previous run, and hours already in the volume are skipped.
-    - cron: "30 1 * * *"
+    # Two runs ahead of the 03:00 UTC Databricks job, at unusual minutes: GitHub delays or drops
+    # scheduled runs at busy times such as :00 and :30, so the second run is a safety net. Both
+    # are safe to repeat: GH Archive hours already landed are skipped (48-hour look-back), and
+    # repo enrichment runs at most once per UTC day.
+    - cron: "17 1 * * *"
+    - cron: "23 2 * * *"
   workflow_dispatch:
     inputs:
       start:

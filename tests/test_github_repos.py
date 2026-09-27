@@ -1,4 +1,5 @@
 import gzip
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -198,3 +199,31 @@ def test_queue_file_and_local_landing_end_to_end(tmp_path: Path, monkeypatch):
     with gzip.open(landed, "rb") as f:
         rows = [orjson.loads(line) for line in f]
     assert [(r["repo_id"], r["http_status"]) for r in rows] == [(1, 200), (2, 404)]
+
+
+def test_enrichment_runs_once_per_day_unless_forced(tmp_path: Path, monkeypatch):
+    queue = tmp_path / "queue.jsonl"
+    queue.write_bytes(b'{"repo_id": 1, "repo_name": "octo/hello"}\n')
+    today_dir = tmp_path / "out" / "repos" / f"{datetime.now(UTC):%Y-%m-%d}"
+    today_dir.mkdir(parents=True)
+    (today_dir / "repos-earlier-run.json.gz").write_bytes(b"landed by the first run")
+
+    clients = []
+    real_make_client = gr.make_client
+
+    def counting_make_client(token):
+        clients.append(token)
+        return real_make_client(token, httpx.MockTransport(lambda r: ok(repo_json())))
+
+    monkeypatch.setattr(gr, "make_client", counting_make_client)
+    args = ["--queue-file", str(queue), "--output-dir", str(tmp_path / "out")]
+
+    # The backup run finds today's file and stops before touching the API.
+    assert gr.main(args) == 0
+    assert clients == []
+    assert len(list(today_dir.iterdir())) == 1
+
+    # --force runs anyway and lands a second file.
+    assert gr.main([*args, "--force"]) == 0
+    assert len(clients) == 1
+    assert len(list(today_dir.iterdir())) == 2
