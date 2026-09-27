@@ -17,3 +17,6 @@ logs/
 # Local ingestion output and secrets
 data/
 .env
+
+# Dev dashboard export (brackets escaped: unescaped they're a character-class wildcard)
+\[dev\] GitHub Activity Insights 2026-09-26 09_56.pdf
