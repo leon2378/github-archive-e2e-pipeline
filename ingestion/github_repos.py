@@ -295,7 +295,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True
+    )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     # The workflow has a backup schedule in case GitHub drops the first run, so enrichment runs

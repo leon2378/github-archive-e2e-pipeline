@@ -22,6 +22,12 @@ variables:
     description: SQL warehouse that dbt runs on (Free Edition ships exactly one).
     lookup:
       warehouse: Serverless Starter Warehouse
+  ingest_lookback_hours:
+    description: Hours of GH Archive each daily run looks back over (hours already landed are skipped).
+    default: 48
+  enrich_max_requests:
+    description: Max quota-using GitHub API calls per run (a token allows 5,000 an hour).
+    default: 1500
 
 targets:
   # We don't use `mode: development` here: it prefixes every resource name, including Unity Catalog
@@ -29,6 +35,10 @@ targets:
   # Presets give us the useful parts (paused schedule, pipeline dev mode) with stable names.
   dev:
     default: true
+    # Small dev runs keep Free Edition's daily compute quota for prod.
+    variables:
+      ingest_lookback_hours: 3
+      enrich_max_requests: 50
     presets:
       trigger_pause_status: PAUSED
       pipelines_development: true

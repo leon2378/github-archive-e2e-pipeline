@@ -259,7 +259,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True
+    )
     logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per request is too noisy
 
     end = args.end or datetime.now(UTC).replace(minute=0, second=0, microsecond=0)

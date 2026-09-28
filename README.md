@@ -1,7 +1,6 @@
 # GitHub Archive: End-to-End Data Pipeline
 
 [![CI/CD](https://github.com/leon2378/github-archive-e2e-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/leon2378/github-archive-e2e-pipeline/actions/workflows/ci.yml)
-[![Daily ingestion](https://github.com/leon2378/github-archive-e2e-pipeline/actions/workflows/ingest.yml/badge.svg)](https://github.com/leon2378/github-archive-e2e-pipeline/actions/workflows/ingest.yml)
 
 **What is the world building right now?** This project is an end-to-end lakehouse pipeline on
 Databricks. It turns every public GitHub event from [GH Archive](https://www.gharchive.org)
@@ -26,7 +25,7 @@ Measured in production after a 3-day backfill (Sep 23–25, 2026):
 | Daily run time | ~4 minutes for the pipeline plus dbt, on serverless compute |
 | Landed data volume | −55% from payload slimming at ingestion |
 | Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
-| Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the 1,000 requests/hour token limit |
+| Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the token's hourly limit |
 | Enrichment coverage | 95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
 | Test coverage | 23 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
 | Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
@@ -35,11 +34,9 @@ Measured in production after a 3-day backfill (Sep 23–25, 2026):
 
 ```mermaid
 flowchart LR
-    GHA["GH Archive<br/>hourly JSON"] -->|"GitHub Actions<br/>daily 01:17 UTC<br/>(+ 02:23 backup)"| ING["ingestion/gharchive.py<br/>slim + upload"]
-    API["GitHub REST API<br/>repo metadata"] -->|"conditional requests<br/>(ETags)"| ENR["ingestion/github_repos.py<br/>works the queue"]
-    ING --> VOL[("UC volume<br/>landing")]
-    ENR --> VOL
-    subgraph DBX["Databricks Free Edition: Lakeflow Job, daily 03:00 UTC"]
+    subgraph DBX["Databricks Free Edition: one Lakeflow Job, daily 03:00 UTC"]
+        ING["ingest_gharchive<br/>slim + land"] --> VOL[("UC volume<br/>landing")]
+        ENR["enrich_repos<br/>works the queue"] --> VOL
         VOL -->|"Auto Loader<br/>events/"| BR["bronze_events"]
         BR -->|"expectations"| SI["silver_events"]
         VOL -->|"Auto Loader<br/>repos/"| BRR["bronze_repos"]
@@ -51,8 +48,11 @@ flowchart LR
         DIM --> GOLD
         GOLD --> DASH["AI/BI dashboard<br/>+ Ask Genie"]
         GOLD -->|dbt| Q["ops_repo_enrichment_queue"]
+        Q -.->|"next run's<br/>fetch list"| ENR
     end
-    Q -.->|"next run's<br/>fetch list"| ENR
+    GHA["GH Archive<br/>hourly JSON"] --> ING
+    API["GitHub REST API<br/>repo metadata"] -->|"conditional requests<br/>(ETags)"| ENR
+    GIT["GitHub repo"] -->|"GitHub Actions CI/CD<br/>test + deploy"| DBX
 ```
 
 The Lakeflow pipeline in production, with two Auto Loader flows. Events: `bronze_events` →
@@ -66,12 +66,12 @@ via `AUTO CDC`, 834 repos upserted).
 
 | Layer | Tool |
 |---|---|
-| Ingestion | Python 3.12, httpx, orjson, Databricks SDK, run on **GitHub Actions**; **GitHub REST API** with conditional requests |
+| Ingestion | Python 3.12, httpx, orjson, Databricks SDK, run as **Lakeflow Job** tasks on serverless; **GitHub REST API** with conditional requests |
 | Storage | **Unity Catalog** volume (landing) + **Delta Lake** tables with liquid clustering |
 | Processing | **Auto Loader** + **Lakeflow Spark Declarative Pipelines** (PySpark, serverless), **AUTO CDC** for SCD Type 2 |
 | Data quality | Pipeline **expectations**, **dbt** data and singular tests, dbt **unit tests**, source freshness |
 | Transformation | **dbt** (dbt-databricks) on a serverless SQL warehouse |
-| Orchestration | **Lakeflow Jobs** (pipeline → dbt), GitHub Actions (ingestion) |
+| Orchestration | **Lakeflow Jobs**: ingestion → enrichment → pipeline → dbt, on one schedule |
 | Infra as code / CI/CD | **Declarative Automation Bundles** (formerly Asset Bundles) + GitHub Actions |
 | Serving | **AI/BI dashboard** + **Genie** (natural-language questions over the gold tables) |
 | Tooling | venv or conda, pip, **ruff**, **pytest** |
@@ -85,18 +85,19 @@ The key choices, and the trade-offs behind them.
   to land and store (−55% measured), and gives one uniform bronze shape across ~18 event types.
   Trade-off: dropped fields can't be recovered from bronze, so the ingestion script is the one
   place to change if a new metric needs them.
-- **Push-based landing zone.** Free Edition compute can only reach a small set of trusted
-  domains, so extraction runs in GitHub Actions and pushes files to a Unity Catalog volume. This
-  mirrors a common real-world setup where a vendor or upstream team drops files for you.
+- **One orchestrator for the whole run.** Extraction first ran on GitHub Actions, on the assumption
+  that Free Edition compute couldn't reach outside websites. Then GitHub's scheduler never fired
+  for this repo: zero scheduled runs across three attempts on two nights, with no incident
+  reported. Testing egress from serverless compute showed GH Archive and the GitHub API are both
+  reachable, so ingestion moved into the Lakeflow Job as its first tasks. One scheduler, which
+  has fired on time every night, now runs everything in order, and GitHub Actions is left to
+  CI/CD and manual backfills. Files still land in a volume before processing, which keeps
+  extraction replayable and separate from transformation.
 - **Idempotent, self-healing ingestion.** Files are named by hour and skipped if already present,
   so the daily run uses an overlapping 48-hour window. A missed run fixes itself the next day,
   and backfills can be re-run safely. Auto Loader tracks processed files, so no file is loaded
-  twice. Events that GH Archive itself repeats are caught by a dbt `unique` test instead.
-- **A schedule that survives dropped runs.** GitHub can delay or drop scheduled workflows at busy
-  times, and it dropped this project's first nightly run (scheduled for 01:30 UTC). The workflow
-  now runs at unusual minutes (01:17 UTC) with a backup at 02:23, both before the 03:00
-  Databricks job. The backup is safe to repeat: landed hours are skipped, and enrichment checks
-  for a file from today and runs at most once per day, so it never spends API quota twice.
+  twice. Enrichment runs at most once per UTC day, so a rerun never spends API quota twice.
+  Events that GH Archive itself repeats are caught by a dbt `unique` test instead.
 - **Explicit bronze schema with rescued data.** New or unexpected fields go to `_rescued_data`
   instead of breaking the stream. `payload` has a different shape for each event type, so it's
   kept as JSON text and parsed in silver.
@@ -107,12 +108,12 @@ The key choices, and the trade-offs behind them.
   stale refreshes) is decided by a dbt model, versioned and unit-tested with the rest of the SQL.
   The Python job just works the queue from the top, so business rules never hide in extraction
   code.
-- **Conditional requests to stay within quota.** The GitHub Actions token allows 1,000 requests
-  an hour. The queue carries each repo's last ETag, and a repo that hasn't changed answers 304,
-  which doesn't count against the limit, so re-checking it is free. Busy repos change daily and
-  still cost a request; the savings come from the weekly refresh of quieter repos. The job stops
-  cleanly when quota runs low, and missing or blocked repos are recorded and skipped for 30 days
-  instead of being retried every run.
+- **Conditional requests to stay within quota.** A read-only GitHub token, kept in a Databricks
+  secret scope, allows 5,000 requests an hour. The queue carries each repo's last ETag, and a
+  repo that hasn't changed answers 304, which doesn't count against the limit, so re-checking it
+  is free. Busy repos change daily and still cost a request; the savings come from the weekly
+  refresh of quieter repos. The job stops cleanly when quota runs low, and missing or blocked
+  repos are recorded and skipped for 30 days instead of being retried every run.
 - **Slowly changing attributes vs fast-moving metrics.** Name, owner, language, topics, license
   and status are tracked as a Type 2 slowly changing dimension with `AUTO CDC`, so renames and
   transfers keep their history. Stars and forks change daily, so they go into a periodic snapshot
@@ -142,8 +143,8 @@ The key choices, and the trade-offs behind them.
   unqualified table names, and each target points them at its own gold schema, so the dev and
   prod dashboards come from one definition.
 - **Freshness monitoring.** `dbt source freshness` warns after 36 hours without new data and fails
-  the job after 72. This catches silent upstream failures, such as GitHub disabling scheduled
-  workflows after 60 days without repo activity.
+  the job after 72. This catches silent upstream failures, such as GH Archive pausing publication
+  or an ingestion task failing several nights in a row.
 
 ## The data
 
@@ -199,6 +200,7 @@ resources/                      schema + volume, pipeline, job and dashboard def
 ingestion/gharchive.py          extract: GH Archive -> slim -> UC volume (idempotent)
 ingestion/github_repos.py       enrich: GitHub REST API -> UC volume, driven by the dbt queue
 ingestion/sinks.py              shared landing targets (UC volume, or a local folder)
+src/jobs/                       Lakeflow Job task wrappers that run the two ingestion scripts
 src/gharchive_etl/              Lakeflow pipeline: events and repos, bronze -> silver (+ SCD2)
 src/models/                     dbt: staging, intermediate, gold marts, ops queue (+ unit tests)
 src/tests/                      dbt singular tests (repo history integrity)
@@ -209,7 +211,7 @@ dbt_profiles/profiles.yml       dbt connection profiles (job + local)
 tests/                          pytest suite for both ingestion jobs
 requirements*.txt               Python dependencies (runtime, dev, local dbt)
 docs/                           dashboard and pipeline screenshots, dashboard PDF
-.github/workflows/              ci.yml (lint/test/validate/deploy), ingest.yml (daily + backfills)
+.github/workflows/              ci.yml (lint/test/validate/deploy), backfill.yml (manual backfills)
 ```
 
 ## Getting started
@@ -217,8 +219,8 @@ docs/                           dashboard and pipeline screenshots, dashboard PD
 ### 1. One-time setup
 
 1. Create a free account at [Databricks Free Edition](https://www.databricks.com/learn/free-edition).
-2. Create a personal access token for GitHub Actions: **Settings → Developer → Access tokens**.
-   Copy it right away. Databricks shows it only once.
+2. Create a Databricks personal access token for GitHub Actions (CI/CD): **Settings → Developer →
+   Access tokens**. Copy it right away. Databricks shows it only once.
 3. Install the Databricks CLI (Windows shown; on macOS/Linux use Homebrew or the curl installer):
    ```powershell
    winget install Databricks.DatabricksCLI
@@ -227,7 +229,15 @@ docs/                           dashboard and pipeline screenshots, dashboard PD
    ```powershell
    databricks auth login --host https://<your-workspace>.cloud.databricks.com --profile DEFAULT
    ```
-5. Create a Python environment and install dependencies, with **either** venv:
+5. Create a read-only GitHub token for repo enrichment. On GitHub, go to **Settings → Developer
+   settings → Fine-grained tokens → Generate new token**, choose **Public repositories
+   (read-only)** and add no permissions. Store it in a Databricks secret scope; the second command
+   prompts for the token, so it never ends up in your shell history:
+   ```powershell
+   databricks secrets create-scope gharchive
+   databricks secrets put-secret gharchive github_token
+   ```
+6. Create a Python environment and install dependencies, with **either** venv:
    ```powershell
    python -m venv .venv
    .venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
@@ -239,7 +249,7 @@ docs/                           dashboard and pipeline screenshots, dashboard PD
    conda activate gharchive
    pip install -r requirements-dev.txt
    ```
-6. Check everything works: `pytest` and `ruff check .`
+7. Check everything works: `pytest` and `ruff check .`
 
 ### 2. Deploy and run in dev
 
@@ -247,18 +257,13 @@ docs/                           dashboard and pipeline screenshots, dashboard PD
 # Create the dev schema, landing volume, pipeline and job
 databricks bundle deploy -t dev
 
-# Land a few hours of data in the dev volume (start small: Free Edition has daily quotas)
-python -m ingestion.gharchive --start 2026-09-01T00 --end 2026-09-01T06
-
-# Run the pipeline, then dbt (this also builds the enrichment queue)
-databricks bundle run gharchive_daily -t dev
-
-# Enrich the queued repos from the GitHub API, then run the job again to build the repo tables.
-# Without a token GitHub allows 60 requests an hour; any GitHub token raises that to 5,000.
-$env:GITHUB_TOKEN = "<a GitHub token>"
-python -m ingestion.github_repos --max-requests 200
+# Run the whole job: ingest the last 3 hours of GH Archive, enrich up to 50 queued repos, run the
+# pipeline, then dbt. Dev runs are kept small to save Free Edition's daily compute quota.
 databricks bundle run gharchive_daily -t dev
 ```
+
+On a fresh workspace, run the job twice: the first run builds the enrichment queue, and the
+second enriches the repos in it.
 
 Want to see the ingestion without Databricks? Write to a local folder instead:
 `python -m ingestion.gharchive --start 2026-09-01T00 --end 2026-09-01T01 --output-dir data`
@@ -268,11 +273,10 @@ Want to see the ingestion without Databricks? Write to a local folder instead:
 1. Push this repo to GitHub (public repos get unlimited Actions minutes).
 2. Add repository secrets `DATABRICKS_HOST` (your workspace URL) and `DATABRICKS_TOKEN`.
 3. Push to `main`. **CI/CD** lints, tests, validates the bundle, then deploys the `prod` target.
-4. **Daily ingestion** runs every day: it downloads the latest GH Archive hours, then enriches the
-   queued repos from the GitHub API with the workflow's built-in token (no extra secret needed).
-   To backfill history, open the workflow in the Actions tab, click **Run workflow**, and enter a
-   `start`/`end` range.
-5. The prod job runs daily at 03:00 UTC and emails you if anything fails.
+4. The prod job runs daily at 03:00 UTC: GH Archive ingestion, repo enrichment, the pipeline and
+   dbt, in that order. It emails you if anything fails.
+5. To backfill history, open **Manual backfill** in the Actions tab, click **Run workflow**, and
+   enter a `start`/`end` range. The next daily run processes the backfilled files.
 6. If a change deletes or recreates a resource (for example, renaming one), CI stops at
    **Deploy to prod** instead of applying it. Review the plan, apply it yourself, then re-run the
    failed job in the Actions tab:
@@ -329,13 +333,13 @@ The whole project runs on the free tier, which shaped a few of the choices above
   dashboard.
 - **One active pipeline per pipeline type,** so the dev and prod pipelines can't run at the same
   time.
-- **Limited outbound internet from Databricks compute,** which is why extraction runs on GitHub
-  Actions.
+- **Outbound internet limited to trusted domains.** GH Archive, the GitHub API and PyPI are all
+  on the list (tested from serverless compute), so extraction runs inside the Lakeflow Job.
 
 ## Future improvements
 
-- **Event-driven orchestration:** replace the 03:00 schedule with a file-arrival trigger on the
-  landing volume.
+- **Fresher data:** run the job every few hours instead of daily, now that ingestion is part of
+  it (budget permitting: Free Edition has daily compute quotas).
 - **Same-day enrichment:** run the pipeline again after enrichment, so new trending repos get
   their metadata the same day.
 - **Spark unit tests:** test the pipeline transformations locally with Databricks Connect.

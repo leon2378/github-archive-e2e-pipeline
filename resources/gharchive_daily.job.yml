@@ -1,5 +1,8 @@
-# Lakeflow Job: refresh the pipeline, then build and test the dbt gold layer.
-# Runs daily at 03:00 UTC, after the GitHub Actions ingestion (01:30 UTC) has landed new files.
+# Lakeflow Job: the whole daily run, in order, on Databricks' scheduler (03:00 UTC).
+#   ingest_gharchive  new GH Archive hours -> landing volume          } run in parallel
+#   enrich_repos      queued repos from the GitHub REST API -> volume }
+#   refresh_pipeline  Lakeflow pipeline: bronze -> silver (+ SCD2 repo history)
+#   dbt_build         gold models, tests and source freshness checks
 resources:
   jobs:
     gharchive_daily:
@@ -15,7 +18,39 @@ resources:
           - ${workspace.current_user.userName}
 
       tasks:
+        - task_key: ingest_gharchive
+          environment_key: ingestion
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/jobs/ingest_gharchive.py
+            parameters:
+              - ${workspace.file_path}
+              - --volume-path
+              - ${resources.volumes.landing.volume_path}
+              - --lookback-hours
+              - "${var.ingest_lookback_hours}"
+
+        - task_key: enrich_repos
+          environment_key: ingestion
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/jobs/enrich_repos.py
+            parameters:
+              - ${workspace.file_path}
+              - --volume-path
+              - ${resources.volumes.landing.volume_path}
+              - --queue-table
+              - ${var.catalog}.${resources.schemas.gharchive.name}_gold.ops_repo_enrichment_queue
+              - --max-requests
+              - "${var.enrich_max_requests}"
+
         - task_key: refresh_pipeline
+          depends_on:
+            - task_key: ingest_gharchive
+            - task_key: enrich_repos
+          # Process whatever landed even if one ingestion task failed. The failed task still
+          # fails the run, so the failure email goes out.
+          run_if: ALL_DONE
           pipeline_task:
             pipeline_id: ${resources.pipelines.gharchive_etl.id}
 
@@ -29,10 +64,16 @@ resources:
             commands:
               - "dbt deps --target=${bundle.target}"
               - 'dbt build --target=${bundle.target} --vars "{catalog: ${var.catalog}, pipeline_schema: ${resources.schemas.gharchive.name}, warehouse_id: ${var.warehouse_id}}"'
-              # Fails the run if no new data has arrived, e.g. the ingestion workflow stopped.
+              # Fails the run if no new data has arrived, e.g. GH Archive stopped publishing.
               - 'dbt source freshness --target=${bundle.target} --vars "{catalog: ${var.catalog}, pipeline_schema: ${resources.schemas.gharchive.name}, warehouse_id: ${var.warehouse_id}}"'
 
       environments:
+        - environment_key: ingestion
+          spec:
+            environment_version: "4"
+            dependencies:
+              - httpx>=0.28,<1.0
+              - orjson>=3.10,<4.0
         - environment_key: dbt
           spec:
             environment_version: "4"
