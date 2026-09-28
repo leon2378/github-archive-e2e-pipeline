@@ -66,6 +66,21 @@ def test_slim_repo_keeps_attributes_and_metrics_and_drops_urls():
     assert "html_url" not in slim and "avatar_url" not in str(slim)
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("\x00github_pat_abc123", "github_pat_abc123"),  # NUL picked up in a hidden prompt
+        ("\x16ghp_abc123\r\n", "ghp_abc123"),  # ^V plus a trailing newline
+        ("  ghp_abc123  ", "ghp_abc123"),
+        ("github_pat_abc123", "github_pat_abc123"),  # a clean token is left alone
+        ("\x00\n", None),
+        (None, None),
+    ],
+)
+def test_clean_token_removes_paste_artifacts(value, expected):
+    assert gr.clean_token(value) == expected
+
+
 def test_fetches_repo_and_records_etag_and_auth_headers():
     seen = {}
 

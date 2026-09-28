@@ -142,6 +142,16 @@ def slim_repo(repo: dict) -> dict:
 # --- Extract ------------------------------------------------------------------------------------
 
 
+def clean_token(value: str | None) -> str | None:
+    """Drop whitespace and control characters from a token, or return None if nothing is left.
+
+    Pasting into a hidden prompt can add invisible characters (a NUL or ^V), which GitHub rejects
+    with a 400. Real tokens are printable ASCII, so this never changes a valid one.
+    """
+    cleaned = "".join(ch for ch in value or "" if ch.isprintable()).strip()
+    return cleaned or None
+
+
 def make_client(token: str | None, transport: httpx.BaseTransport | None = None) -> httpx.Client:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -321,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Queue is empty; nothing to do.")
         return 0
 
-    token = os.environ.get("GITHUB_TOKEN")
+    token = clean_token(os.environ.get("GITHUB_TOKEN"))
     if not token:
         log.warning("GITHUB_TOKEN not set: unauthenticated requests are limited to 60/hour.")
 
