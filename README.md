@@ -4,7 +4,7 @@
 
 **What is the world building right now?** This project is an end-to-end lakehouse pipeline on
 Databricks. It turns every public GitHub event from [GH Archive](https://www.gharchive.org)
-(1.5–2.4 million a day: pushes, pull requests, stars, forks and releases) into trending-repo
+(1.5–3 million a day: pushes, pull requests, stars, forks and releases) into trending-repo
 rankings and activity analytics. The repos that matter are enriched from the GitHub REST API
 (language, topics, license, age), and their attributes are tracked over time as a Type 2 slowly
 changing dimension.
@@ -27,7 +27,7 @@ Measured in production after a 3-day backfill (Sep 23–25, 2026):
 | Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
 | Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the token's hourly limit |
 | Enrichment coverage | 95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
-| Test coverage | 23 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
+| Test coverage | 29 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
 | Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
 
 ## Architecture
@@ -101,9 +101,10 @@ The key choices, and the trade-offs behind them.
 - **Explicit bronze schema with rescued data.** New or unexpected fields go to `_rescued_data`
   instead of breaking the stream. `payload` has a different shape for each event type, so it's
   kept as JSON text and parsed in silver.
-- **Lakeflow for ingestion, dbt for business logic.** Bronze and silver run in a Lakeflow
-  pipeline, which has Auto Loader, streaming and expectations built in. Gold lives in dbt, where
-  business logic is plain SQL that is version-controlled, tested, and portable to other warehouses.
+- **A Lakeflow pipeline for bronze and silver, dbt for business logic.** Bronze and silver run in
+  a Lakeflow pipeline, which has Auto Loader, streaming and expectations built in. Gold lives in
+  dbt, where business logic is plain SQL that is version-controlled, tested, and portable to
+  other warehouses.
 - **Enrichment driven by a dbt queue.** Which repos are worth an API call (trending, most active,
   stale refreshes) is decided by a dbt model, versioned and unit-tested with the rest of the SQL.
   The Python job just works the queue from the top, so business rules never hide in extraction
@@ -136,9 +137,10 @@ The key choices, and the trade-offs behind them.
   new rows (tracked with `_loaded_through`) and merge them. Backfilling last month fixes last
   month's aggregates without a full refresh.
 - **Dev/prod isolation with safe deploys.** Each target gets its own schemas, pipeline, job and
-  dashboard, and dev schedules are paused. CI deploys prod from `main`, and it refuses destructive
-  changes (anything that deletes or recreates a resource) until someone reviews the plan and
-  approves it by hand.
+  dashboard. Dev schedules are paused, and dev runs stay small (a 3-hour look-back and 50 API
+  calls) to save Free Edition's daily quota. CI deploys prod from `main`, and it refuses
+  destructive changes (anything that deletes or recreates a resource) until someone reviews the
+  plan and approves it by hand.
 - **Dashboard as code.** The AI/BI dashboard is a JSON file in the repo. Its queries use
   unqualified table names, and each target points them at its own gold schema, so the dev and
   prod dashboards come from one definition.
@@ -158,6 +160,9 @@ Measured by this pipeline on 3 days of production data (Sep 23–25, 2026, 72 ho
 | Bots | 18% of all events, 34% of PR events and 54% of issue comments |
 | Size | −55% after slimming (110.5 MB raw → 50.2 MB, measured on 8 sample hours) |
 | Duplicates | 3 repeated event IDs in 5.37M events, flagged by the dbt `unique` test |
+
+The first weekend was busier than any weekday so far: 2.35M events on Saturday (Sep 26) and
+2.96M on Sunday (Sep 27). A few more weeks of history will show whether that's a pattern.
 
 From the first repo enrichment run (Sep 26, 2026, 835 repos):
 
@@ -230,13 +235,15 @@ docs/                           dashboard and pipeline screenshots, dashboard PD
    databricks auth login --host https://<your-workspace>.cloud.databricks.com --profile DEFAULT
    ```
 5. Create a read-only GitHub token for repo enrichment. On GitHub, go to **Settings → Developer
-   settings → Fine-grained tokens → Generate new token**, choose **Public repositories
-   (read-only)** and add no permissions. Store it in a Databricks secret scope; the second command
-   prompts for the token, so it never ends up in your shell history:
+   settings → Personal access tokens → Fine-grained tokens → Generate new token**, choose
+   **Public repositories (read-only)** and add no permissions. Store it in a Databricks secret
+   scope; the second command prompts for the token, so it never ends up in your shell history:
    ```powershell
    databricks secrets create-scope gharchive
    databricks secrets put-secret gharchive github_token
    ```
+   Pasting into that hidden prompt can pick up an invisible character (it happened here: a
+   NUL). The job strips control characters and whitespace from the token, so it still works.
 6. Create a Python environment and install dependencies, with **either** venv:
    ```powershell
    python -m venv .venv
