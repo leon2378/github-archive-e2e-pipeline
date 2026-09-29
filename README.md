@@ -17,16 +17,17 @@ changing dimension.
 
 ## Results
 
-Measured in production after a 3-day backfill (Sep 23–25, 2026):
+Measured in production, Sep 23–29, 2026:
 
 | | |
 |---|---|
-| Events processed | 5.37M over 3 days (1.48M–2.12M per day) |
-| Daily run time | ~4 minutes for the pipeline plus dbt, on serverless compute |
+| Events processed | 5.37M in the initial 3-day backfill (Sep 23–25), then 2.4M–3M a day |
+| Daily run time | ~9 minutes end to end on serverless: ingestion (1.4 min) and enrichment (4 min) in parallel, then the pipeline (2 min) and dbt (3 min) |
 | Landed data volume | −55% from payload slimming at ingestion |
 | Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
 | Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the token's hourly limit |
-| Enrichment coverage | 95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
+| Enrichment coverage | 91–95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
+| History tracking | 6 real changes captured by the SCD Type 2 table in its first 3 days, including a rename (`godseye` → `pip-scout`), a TypeScript → Rust rewrite and a license change to MIT |
 | Test coverage | 29 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
 | Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
 
@@ -161,8 +162,8 @@ Measured by this pipeline on 3 days of production data (Sep 23–25, 2026, 72 ho
 | Size | −55% after slimming (110.5 MB raw → 50.2 MB, measured on 8 sample hours) |
 | Duplicates | 3 repeated event IDs in 5.37M events, flagged by the dbt `unique` test |
 
-The first weekend was busier than any weekday so far: 2.35M events on Saturday (Sep 26) and
-2.96M on Sunday (Sep 27). A few more weeks of history will show whether that's a pattern.
+Daily volume swings widely: from 1.48M events on Thursday Sep 24 to 2.96M on Sunday Sep 27. A few
+more weeks of history will show whether there's a weekly pattern.
 
 From the first repo enrichment run (Sep 26, 2026, 835 repos):
 
