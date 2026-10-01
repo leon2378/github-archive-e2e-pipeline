@@ -4,7 +4,7 @@
 
 **What is the world building right now?** This project is an end-to-end lakehouse pipeline on
 Databricks. It turns every public GitHub event from [GH Archive](https://www.gharchive.org)
-(1.5–3 million a day: pushes, pull requests, stars, forks and releases) into trending-repo
+(1.3–3 million a day: pushes, pull requests, stars, forks and releases) into trending-repo
 rankings and activity analytics. The repos that matter are enriched from the GitHub REST API
 (language, topics, license, age), and their attributes are tracked over time as a Type 2 slowly
 changing dimension.
@@ -17,12 +17,12 @@ changing dimension.
 
 ## Results
 
-Measured in production, Sep 23–29, 2026:
+Measured in production, Sep 23 – Oct 1, 2026:
 
 | | |
 |---|---|
-| Events processed | 5.37M in the initial 3-day backfill (Sep 23–25), then 2.4M–3M a day |
-| Daily run time | ~9 minutes end to end on serverless: ingestion (1.4 min) and enrichment (4 min) in parallel, then the pipeline (2 min) and dbt (3 min) |
+| Events processed | 5.37M in the initial 3-day backfill (Sep 23–25), then 1.3M–3M a day (GH Archive's own volume dropped on Sep 29, see [The data](#the-data)) |
+| Daily run time | ~9 minutes end to end on serverless (8.7–8.8 min on each of the first 3 nightly runs): ingestion (1.4 min) and enrichment (4 min) in parallel, then the pipeline (2 min) and dbt (3 min) |
 | Landed data volume | −55% from payload slimming at ingestion |
 | Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
 | Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the token's hourly limit |
@@ -164,6 +164,12 @@ Measured by this pipeline on 3 days of production data (Sep 23–25, 2026, 72 ho
 
 Daily volume swings widely: from 1.48M events on Thursday Sep 24 to 2.96M on Sunday Sep 27. A few
 more weeks of history will show whether there's a weekly pattern.
+
+**Upstream drop on Sep 29.** From 19:00 UTC on Sep 29, GH Archive's own hourly files carry about
+40% fewer events (54K an hour on average since, against 92K before), so Sep 30 came in at 1.26M.
+Push events fell from 81% to 64% of the mix, while pull request events grew from under 2% to 9%.
+This is a change in the source, not lost data: the published files for those hours contain exactly
+the events the pipeline loaded (for example 51,393 for 18:00 UTC on Sep 30).
 
 From the first repo enrichment run (Sep 26, 2026, 835 repos):
 
