@@ -17,17 +17,17 @@ changing dimension.
 
 ## Results
 
-Measured in production, Sep 23 – Oct 1, 2026:
+Measured in production, Sep 23 – Oct 2, 2026:
 
 | | |
 |---|---|
-| Events processed | 5.37M in the initial 3-day backfill (Sep 23–25), then 1.3M–3M a day (GH Archive's own volume dropped on Sep 29, see [The data](#the-data)) |
-| Daily run time | ~9 minutes end to end on serverless (8.7–8.8 min on each of the first 3 nightly runs): ingestion (1.4 min) and enrichment (4 min) in parallel, then the pipeline (2 min) and dbt (3 min) |
+| Events processed | 18.8M in total: 5.37M in the initial 3-day backfill (Sep 23–25), then 1.3M–3M a day (the low day was a temporary dip in GH Archive's own data, see [The data](#the-data)) |
+| Daily run time | ~9 minutes end to end on serverless (8.7–9.1 min across the first 4 nightly runs): ingestion (1.4 min) and enrichment (4 min) in parallel, then the pipeline (2 min) and dbt (3 min) |
 | Landed data volume | −55% from payload slimming at ingestion |
-| Data quality | 9 malformed events dropped by expectations, 3 duplicate events flagged, 0 rescued rows |
+| Data quality | 47 malformed events dropped by expectations, 70 event IDs that GH Archive repeats flagged by dbt, 0 rescued rows |
 | Repo enrichment | 836 repos fetched from the GitHub API in one run (835 found, 1 deleted), within the token's hourly limit |
 | Enrichment coverage | 91–95 of the top 100 trending repos have metadata; repos that start trending are filled in on the next run |
-| History tracking | 6 real changes captured by the SCD Type 2 table in its first 3 days, including a rename (`godseye` → `pip-scout`), a TypeScript → Rust rewrite and a license change to MIT |
+| History tracking | 26 changes captured by the SCD Type 2 table in its first week, including a rename (`godseye` → `pip-scout`), an ownership transfer, a repo being archived, TypeScript → Rust language switches and license changes |
 | Test coverage | 29 pytest tests, 40 dbt data tests, 5 dbt unit tests, source freshness checks |
 | Deployment | Every push to `main` is linted, tested, validated and deployed by CI |
 
@@ -162,14 +162,15 @@ Measured by this pipeline on 3 days of production data (Sep 23–25, 2026, 72 ho
 | Size | −55% after slimming (110.5 MB raw → 50.2 MB, measured on 8 sample hours) |
 | Duplicates | 3 repeated event IDs in 5.37M events, flagged by the dbt `unique` test |
 
-Daily volume swings widely: from 1.48M events on Thursday Sep 24 to 2.96M on Sunday Sep 27. A few
-more weeks of history will show whether there's a weekly pattern.
+Daily volume swings widely even on normal days: from 1.48M events on Thursday Sep 24 to 2.96M on
+Sunday Sep 27. A few more weeks of history will show whether there's a weekly pattern.
 
-**Upstream drop on Sep 29.** From 19:00 UTC on Sep 29, GH Archive's own hourly files carry about
-40% fewer events (54K an hour on average since, against 92K before), so Sep 30 came in at 1.26M.
-Push events fell from 81% to 64% of the mix, while pull request events grew from under 2% to 9%.
-This is a change in the source, not lost data: the published files for those hours contain exactly
-the events the pipeline loaded (for example 51,393 for 18:00 UTC on Sep 30).
+**A temporary dip upstream (Sep 29 – Oct 1).** For about 30 hours, from 19:00 UTC on Sep 29 to
+around 01:00 UTC on Oct 1, GH Archive's own hourly files carried roughly 40% fewer events (54K an
+hour on average, against 92K before), so Sep 30 came in at 1.26M. Push events fell from about 80%
+of the mix to 64%, while pull request events rose from about 2% to 9%. Volume was back to normal
+on Oct 1 (2.07M). No data was lost in the pipeline: GH Archive's published files for those hours
+contain exactly the events it loaded (for example 51,393 for 18:00 UTC on Sep 30).
 
 From the first repo enrichment run (Sep 26, 2026, 835 repos):
 
